@@ -16,28 +16,15 @@ typedef enum {
     DECODE_STATE_COUNT,
 } decode_state_t;
 
-static int                     previous_time;
-static volatile decode_state_t current_state;
-static volatile unsigned long  clock_rate_start_us;
-static volatile unsigned long  clock_period_us;
+static volatile bool data_transition_flag;
+
+static uint32_t       previous_time;
+static decode_state_t current_state;
+static uint32_t       clock_rate_start_us;
+static uint32_t       clock_period_us;
 
 void data_pin_isr(void) {
-    uint8_t bit  = digitalPinToBitMask(DEBUG_PIN_1);
-    PORTA.OUTTGL = bit;
-    switch (current_state) {
-        case DECODE_STATE_IDLE:
-            clock_rate_start_us = micros();
-            current_state       = DECODE_STATE_MEASURING_CLOCK_RATE;
-            break;
-        case DECODE_STATE_MEASURING_CLOCK_RATE:
-            clock_period_us = micros() - clock_rate_start_us;
-            current_state   = DECODE_STATE_IDLE;
-            break;
-        default:
-            uint8_t bit  = digitalPinToBitMask(DEBUG_PIN_2);
-            PORTA.OUTSET = bit;
-            break;
-    }
+    data_transition_flag = true;
 }
 
 void setup() {
@@ -72,10 +59,11 @@ void setup() {
     // Globally enable interupts
     /* SREG |= (1 << 7); */
 
-    current_state       = DECODE_STATE_IDLE;
-    clock_rate_start_us = 0;
-    clock_period_us     = ((unsigned long)500) * 1000;
-    previous_time       = millis();
+    current_state        = DECODE_STATE_IDLE;
+    data_transition_flag = false;
+    clock_rate_start_us  = 0;
+    clock_period_us      = (uint32_t)500 * 1000;
+    previous_time        = millis();
 }
 
 void loop() {
@@ -121,6 +109,31 @@ void loop() {
     //   transiton
     /////////////////////////
 
+    if (data_transition_flag) {
+        data_transition_flag = false;
+
+        uint8_t bit  = digitalPinToBitMask(DEBUG_PIN_1);
+        PORTA.OUTTGL = bit;
+
+        switch (current_state) {
+            case DECODE_STATE_IDLE: {
+                clock_rate_start_us = micros();
+                current_state       = DECODE_STATE_MEASURING_CLOCK_RATE;
+                break;
+            }
+            case DECODE_STATE_MEASURING_CLOCK_RATE: {
+                clock_period_us = micros() - clock_rate_start_us;
+                current_state   = DECODE_STATE_IDLE;
+                break;
+            }
+            default:
+                uint8_t bit  = digitalPinToBitMask(DEBUG_PIN_2);
+                PORTA.OUTSET = bit;
+                break;
+        }
+    }
+
+    // Heartbeat for debug
     unsigned long now = millis();
     if (now - previous_time > (clock_period_us / 1000)) {
         uint8_t bit  = digitalPinToBitMask(DEBUG_PIN_2);
