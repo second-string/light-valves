@@ -54,6 +54,7 @@ static uint32_t         clock_period_us;
 static uint32_t         clock_period_padding_us;
 static uint8_t          data_edges_counted;
 static uint8_t          clock_edges_counted;
+static volatile bool    timeout;
 
 static uint8_t rx_start_bits;
 static uint8_t rx_data_bits;
@@ -68,7 +69,61 @@ void data_pin_isr(void) {
     data_transition_flag = true;
 }
 
+ISR(TCA0_OVF_vect) {
+    // immediately clear overflow flag
+    TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
+
+    if (flags & TCA_SINGLE_OVF_bm) {
+        uint8_t bit  = digitalPinToBitMask(GREEN_LED);
+        PORTA.OUTTGL = bit;
+        timeout      = true;
+    }
+}
+
+/*
+ * Set up timer to expected timeout values and enabled interrupt. Does not start timer
+ */
+void timeout_timer_init(void) {
+    // With prescaler of 16 @ 20MHz this is ~6.5ms. Currently a full packet is 13 bits @ 5us/bit, or 6.5ms.
+    TCA0.SINGLE.PER = 8125;
+    TCA0.SINGLE.CNT = 0;
+
+    // Divide 20MHz down to 5MHz
+    TCA0.SINGLE.CTRLA = TCA_SINGLE_CLKSEL_DIV16_gc;
+
+    // Set to single mode not split 8-bit mode
+    TCA0.SINGLE.CTRLD = 0x00;
+
+    // Enable interrupts just for overflow
+    TCA0.SINGLE.INTCTRL = TCA_SINGLE_OVF_bm;
+
+    timeout = false;
+}
+
+/*
+ * Start counting and enable interrupts
+ */
+uint32_t start;
+void     timeout_timer_start(void) {
+        // Clear all TCA0 interrupt flags since they can trigger even when periph not enabled
+    TCA0.SINGLE.INTFLAGS = 0xF;
+    start                = millis();
+
+    // Set enable bit to turn it on
+    TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm;
+}
+
+/*
+ * Resetting CNT while it's counting is safe, but the CTRLECLR command reg lets us avoid the read/alter/write
+ * instruction cycle. With this RESTART command "the counter, direction, and all compare outputs are set to ‘0’".
+ */
+void timeout_timer_refresh(void) {
+    /* TCA0.CNT = 0; */
+    TCA0.SINGLE.CTRLECLR |= (0x2 << 2);
+}
+
 void setup() {
+    timeout_timer_init();
     // - set up data pin as input and 2 light valve pins + test GPIO as output and low
     // - start pwm for output valve pins at either fully clear or fully opaque (TODO :: run a fancy startup or bink to
     // indicate stored node ID)
@@ -102,9 +157,6 @@ void setup() {
     /* PORTB.DIRSET = bit; */
     /* PORTB.OUTCLR = 0xFF; */
 
-    // Globally enable interupts
-    /* SREG |= (1 << 7); */
-
     current_state        = DECODE_STATE_IDLE;
     data_transition_flag = false;
 
@@ -122,6 +174,11 @@ void setup() {
     debug_serial.begin(9600);
     debug_serial.println("Light valve node firmware");
     /* #endif */
+
+    // Globally enable interupts
+    sei();
+
+    timeout_timer_start();
 }
 
 void loop() {
@@ -160,12 +217,15 @@ void loop() {
     // no matter what to prevent dropped data
     //    - if address does not equal our stored node ID, return to overall wait state
     //    - if address equals our stored node ID, translate rx byte to PWM period and write to both output PWM registers
-
-    //   - if it's 1/4 overall baud rate period it's a 1. Need to somehow bail out of second transition counting (or
-    //   still measure it to ensure it's the same 1/4 period)
-    //   - if it's 1/2 overall baud rate period, it's a 0. Immediately start the next measurement period on  the next
-    //   transiton
     /////////////////////////
+    if (timeout) {
+        timeout = false;
+        debug_serial.print("timeout ms: ");
+        uint32_t now = millis();
+        debug_serial.println(now - start);
+        start = now;
+        timeout_timer_refresh();
+    }
 
     if (data_transition_flag) {
         data_transition_flag = false;
