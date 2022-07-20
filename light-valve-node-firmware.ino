@@ -13,9 +13,8 @@
 #define GREEN_LED PIN_PA7  // GREEN LED
 #define RED_LED PIN_PA6    // RED LED
 
-#define HEARTBEAT_PERIOD_DEFAULT_MS (500)
+#define HEARTBEAT_PERIOD_DEFAULT_MS (1000)
 #define HEARTBEAT_PERIOD_ERROR_MS (100)
-/* #define CLOCK_PERIOD_PADDING_US (12000)  // TODO :: change this once we set period to actual value */
 
 #define DEBUG_MODE 0
 #if DEBUG_MODE
@@ -72,20 +71,16 @@ void data_pin_isr(void) {
 ISR(TCA0_OVF_vect) {
     // immediately clear overflow flag
     TCA0.SINGLE.INTFLAGS = TCA_SINGLE_OVF_bm;
-
-    if (flags & TCA_SINGLE_OVF_bm) {
-        uint8_t bit  = digitalPinToBitMask(GREEN_LED);
-        PORTA.OUTTGL = bit;
-        timeout      = true;
-    }
+    timeout              = true;
 }
 
 /*
  * Set up timer to expected timeout values and enabled interrupt. Does not start timer
  */
 void timeout_timer_init(void) {
-    // With prescaler of 16 @ 20MHz this is ~6.5ms. Currently a full packet is 13 bits @ 5us/bit, or 6.5ms.
-    TCA0.SINGLE.PER = 8125;
+    // With prescaler of 16 @ 20MHz (aka 1.25MHz) this is ~6.5ms. Currently a full packet is 13 bits @ 500us/bit,
+    // or 6.5ms total.
+    TCA0.SINGLE.PER = 8125 - 1;
     TCA0.SINGLE.CNT = 0;
 
     // Divide 20MHz down to 5MHz
@@ -103,23 +98,27 @@ void timeout_timer_init(void) {
 /*
  * Start counting and enable interrupts
  */
-uint32_t start;
-void     timeout_timer_start(void) {
-        // Clear all TCA0 interrupt flags since they can trigger even when periph not enabled
+void timeout_timer_start(void) {
+    // Clear all TCA0 interrupt flags since they can trigger even when periph not enabled
     TCA0.SINGLE.INTFLAGS = 0xF;
-    start                = millis();
 
     // Set enable bit to turn it on
     TCA0.SINGLE.CTRLA |= TCA_SINGLE_ENABLE_bm;
 }
 
 /*
- * Resetting CNT while it's counting is safe, but the CTRLECLR command reg lets us avoid the read/alter/write
- * instruction cycle. With this RESTART command "the counter, direction, and all compare outputs are set to ‘0’".
+ * Stop counting but don't touch interrupts, they will preemptively be cleared before starting timer again
+ */
+void timeout_timer_stop(void) {
+    // Clear enable bit to turn it off
+    TCA0.SINGLE.CTRLA &= ~TCA_SINGLE_ENABLE_bm;
+}
+
+/*
+ * Resetting CNT while it's counting is safe as it preempts any other counter commands (UPDATE, etc).
  */
 void timeout_timer_refresh(void) {
-    /* TCA0.CNT = 0; */
-    TCA0.SINGLE.CTRLECLR |= (0x2 << 2);
+    TCA0.SINGLE.CNT = 0;
 }
 
 void setup() {
@@ -177,8 +176,6 @@ void setup() {
 
     // Globally enable interupts
     sei();
-
-    timeout_timer_start();
 }
 
 void loop() {
@@ -218,23 +215,31 @@ void loop() {
     //    - if address does not equal our stored node ID, return to overall wait state
     //    - if address equals our stored node ID, translate rx byte to PWM period and write to both output PWM registers
     /////////////////////////
+
+    // Timer is turned off unless we're actively decoding a packet so we don't need to check for state here. If there is
+    // a timeout, reset state back to idle an stop timer
     if (timeout) {
         timeout = false;
-        debug_serial.print("timeout ms: ");
-        uint32_t now = millis();
-        debug_serial.println(now - start);
-        start = now;
-        timeout_timer_refresh();
+
+        timeout_timer_stop();
+        current_state = DECODE_STATE_IDLE;
+        uint8_t bit   = digitalPinToBitMask(GREEN_LED);
+        PORTA.OUTTGL  = bit;
     }
 
     if (data_transition_flag) {
         data_transition_flag = false;
 
+        // Reset timer every time we get an incoming transition to trigger if we dont get all bits expected in a packet
+        timeout_timer_refresh();
+
         uint32_t now_us     = micros();
         uint32_t elapsed_us = now_us - clock_edge_start;
         switch (current_state) {
             case DECODE_STATE_IDLE: {
+                // Got (assumed) first edge of a packet, start measuring clock rate and kick off timeout timer
                 clock_rate_start_us = now_us;
+                timeout_timer_start();
 
                 uint8_t bit   = digitalPinToBitMask(RED_LED);
                 PORTA.OUTTGL  = bit;
@@ -244,11 +249,9 @@ void loop() {
             case DECODE_STATE_MEASURING_CLOCK_RATE: {
                 clock_period_us         = now_us - clock_rate_start_us;
                 clock_period_padding_us = clock_period_us / 10;
+
                 LOG("clck per us: ");
                 LOGLN(clock_period_us);
-
-                uint8_t bit   = digitalPinToBitMask(RED_LED);
-                PORTA.OUTTGL  = bit;
                 current_state = DECODE_STATE_WAITING_FOR_START;
                 break;
             }
@@ -301,8 +304,6 @@ void loop() {
                         if (rx_start_bits == 0xA) {
                             clock_edges_counted = 0;
                             rx_data_bits        = 0x00;
-                            uint8_t bit         = digitalPinToBitMask(GREEN_LED);
-                            PORTA.OUTTGL        = bit;
 
                             current_state = DECODE_STATE_READING_DATA;
                         } else {
@@ -357,6 +358,10 @@ void loop() {
                         LOGLN(rx_data_bits, HEX);
                         clock_edges_counted = 0;
 
+                        // Received full packet, turn off timeout timer. Will be re-enabled in DECODE_STATE_IDLE on
+                        // first edge of next packet RXd
+                        timeout_timer_stop();
+                        debug_serial.println("rx full pkt");
                         debug_serial.print("start bits: 0b");
                         debug_serial.println(rx_start_bits, BIN);
                         debug_serial.print("addr bits: 0b");
@@ -364,6 +369,8 @@ void loop() {
                         debug_serial.print("data bits: 0b");
                         debug_serial.println((rx_data_bits & 0x0F), BIN);
 
+                        uint8_t bit   = digitalPinToBitMask(RED_LED);
+                        PORTA.OUTTGL  = bit;
                         current_state = DECODE_STATE_IDLE;
                     }
                 } else {
@@ -389,9 +396,10 @@ void loop() {
     unsigned long now = millis();
     if ((now - previous_time > heartbeat_period_ms)) {
         if (heartbeat_mode == HEARTBEAT_MODE_HEARTBEAT) {
-            uint8_t bit   = digitalPinToBitMask(RED_LED);
-            PORTA.OUTTGL  = bit;
-            previous_time = now;
+            uint8_t bit  = digitalPinToBitMask(RED_LED);
+            PORTA.OUTTGL = bit;
         }
+
+        previous_time = now;
     }
 }
