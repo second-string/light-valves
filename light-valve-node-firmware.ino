@@ -14,7 +14,7 @@
 #define RED_LED PIN_PA6    // RED LED
 
 #define HEARTBEAT_PERIOD_DEFAULT_MS (1000)
-#define HEARTBEAT_PERIOD_ERROR_MS (100)
+#define HEARTBEAT_PERIOD_ERROR_MS (60)
 
 #define DEBUG_MODE 0
 #if DEBUG_MODE
@@ -42,23 +42,47 @@ typedef enum {
     DECODE_STATE_COUNT,
 } decode_state_t;
 
+// TODO :: non-linear opacity mapping here. Lowest values show no change (0 to 10, 10 to 20), then seems solid for a
+// bit, then highest values indistinguishable w/o light behind valve
+static const uint16_t pwm_counts_by_data_value[16] = {
+    0,
+    10,
+    20,
+    30,
+    50,
+    70,
+    90,
+    120,
+    150,
+    180,
+    210,
+    240,
+    270,
+    310,
+    360,
+    410,
+};
+
 static volatile bool data_transition_flag;
+static volatile bool timeout;
 
 static heartbeat_mode_t heartbeat_mode;
 static uint32_t         heartbeat_period_ms;
 static uint32_t         previous_time;
 static decode_state_t   current_state;
-static uint32_t         clock_rate_start_us;
-static uint32_t         clock_period_us;
-static uint32_t         clock_period_padding_us;
-static uint8_t          data_edges_counted;
-static uint8_t          clock_edges_counted;
-static volatile bool    timeout;
-
-static uint8_t rx_start_bits;
-static uint8_t rx_data_bits;
 
 static uint32_t clock_edge_start;
+static uint32_t clock_rate_start_us;
+static uint32_t clock_period_us;
+static uint32_t clock_period_padding_us;
+static uint8_t  data_edges_counted;
+static uint8_t  clock_edges_counted;
+
+static uint8_t  rx_start_bits;
+static uint8_t  rx_data_bits;
+static uint8_t  device_addr        = 0x1;  // TODO :: eventually this is set dynamically
+static uint16_t current_data_value = 0x0;
+static bool     up                 = true;  // TODO :: debug hack delete
 
 /* #if DEBUG_MODE */
 static SoftwareSerial debug_serial(UART_RX, UART_TX);
@@ -121,8 +145,54 @@ void timeout_timer_refresh(void) {
     TCA0.SINGLE.CNT = 0;
 }
 
+void pwm_timer_init(void) {
+    // Enable-protected reg must have 0 written to enable bit before any other bits can be changed, and it defaults to
+    // enabled on startup
+    TCD0.CTRLA &= ~TCD_ENABLE_bm;
+
+    // Don't need overlapping PWM signals so just do oneramp
+    TCD0.CTRLB = TCD_WGMODE_ONERAMP_gc;
+
+    // Disable all input control
+    TCD0.INPUTCTRLA = TCD_INPUTMODE_NONE_gc;
+    TCD0.INPUTCTRLB = TCD_INPUTMODE_NONE_gc;
+
+    // Enable WOA and WOB (don't need C and D). Since FAULTCTRL reg is write protected we need to make it editable in
+    // CCP reg
+    CPU_CCP        = CCP_IOREG_gc;
+    TCD0.FAULTCTRL = TCD_CMPAEN_bm | TCD_CMPBEN_bm;
+
+    // We will always start high with A output and end high with B output. The clear for A and
+    // set for B values are what are adjusted based on desired duty cycle
+    TCD0.CMPASET = 0x000;
+    TCD0.CMPBCLR = 0xFFF;
+
+    TCD0.CMPACLR = 0x7FF;
+    TCD0.CMPBSET = 0x801;
+
+    // System 20mhz clock w/ largest prescaler possible of 32 but no synchronization prescaler. Must be done as last
+    // operation before starting timer with ENABLE bit
+    // NOTE :: DEFAULT TIMER FOR MILLIS/MICROS FUNCTIONS ON 1-SERIES ATTINIES IS TCD. YOU MUST CHANGE THIS TO TCB IN
+    // ARDUINO PORT SETTINGS
+    TCD0.CTRLA = TCD_CLKSEL_20MHZ_gc | TCD_CNTPRES_DIV32_gc | TCD_SYNCPRES_DIV1_gc;
+}
+
+void pwm_timer_start(void) {
+    while (!(TCD0.STATUS & TCD_ENRDY_bm)) {
+        ;
+    }
+
+    TCD0.CTRLA |= TCD_ENABLE_bm;
+}
+
+void pwm_timer_sync(void) {
+    TCD0.CTRLE = TCD_SYNCEOC_bm;
+}
+
 void setup() {
     timeout_timer_init();
+    pwm_timer_init();
+
     // - set up data pin as input and 2 light valve pins + test GPIO as output and low
     // - start pwm for output valve pins at either fully clear or fully opaque (TODO :: run a fancy startup or bink to
     // indicate stored node ID)
@@ -134,17 +204,20 @@ void setup() {
     // - set up timer with no period, that will be set from second pair of transitions in
     /////////////////////////
     uint8_t bit  = digitalPinToBitMask(DATA_PIN);
-    PORTA.DIRCLR = bit;
+    PORTA.DIRSET = bit;
+    bit          = digitalPinToBitMask(PIN_PA4);
+    PORTA.DIRSET = bit;
+    /* PORTA.DIRCLR = bit; */
     /* DATA_PIN_INT_CTRL_REG |= 0x1;   // interrupt on both edges - attiny 212 DS sec. 16.5.11 */
-    attachInterrupt(DATA_PIN, data_pin_isr, CHANGE);
+    /* attachInterrupt(DATA_PIN, data_pin_isr, CHANGE); */
 
-    bit = digitalPinToBitMask(RED_LED);
-    PORTA.DIR |= bit;
+    bit          = digitalPinToBitMask(RED_LED);
     PORTA.DIRSET = bit;
     bit          = digitalPinToBitMask(GREEN_LED);
     PORTA.DIRSET = bit;
     PORTA.OUTCLR = 0xFF;
 
+    // TODO :: switch back to normal pindirs for PWM functionality
     bit          = digitalPinToBitMask(UART_TX);
     PORTB.DIRSET = bit;
     PORTB.OUTCLR = 0xFF;
@@ -161,7 +234,7 @@ void setup() {
 
     // Default to toggle heartbeat ever half second. Transition to rapid blink indicates error.
     heartbeat_mode      = HEARTBEAT_MODE_DEBUG;
-    heartbeat_period_ms = HEARTBEAT_PERIOD_DEFAULT_MS;
+    heartbeat_period_ms = HEARTBEAT_PERIOD_ERROR_MS;
     clock_rate_start_us = 0;
     clock_period_us     = (uint32_t)500 * 1000;
     previous_time       = millis();
@@ -176,6 +249,7 @@ void setup() {
 
     // Globally enable interupts
     sei();
+    pwm_timer_start();
 }
 
 void loop() {
@@ -361,13 +435,14 @@ void loop() {
                         // Received full packet, turn off timeout timer. Will be re-enabled in DECODE_STATE_IDLE on
                         // first edge of next packet RXd
                         timeout_timer_stop();
-                        debug_serial.println("rx full pkt");
-                        debug_serial.print("start bits: 0b");
-                        debug_serial.println(rx_start_bits, BIN);
-                        debug_serial.print("addr bits: 0b");
-                        debug_serial.println((rx_data_bits & 0xF0) >> 4, BIN);
-                        debug_serial.print("data bits: 0b");
-                        debug_serial.println((rx_data_bits & 0x0F), BIN);
+                        uint8_t rx_addr_bits = (rx_data_bits & 0xF0) >> 4;
+                        if (rx_addr_bits == device_addr) {
+                            debug_serial.print("rx data: 0b");
+                            debug_serial.println((rx_data_bits & 0x0F), BIN);
+                        } else {
+                            debug_serial.print("rx wrong addr: ");
+                            debug_serial.println(rx_addr_bits, BIN);
+                        }
 
                         uint8_t bit   = digitalPinToBitMask(RED_LED);
                         PORTA.OUTTGL  = bit;
@@ -396,9 +471,23 @@ void loop() {
     unsigned long now = millis();
     if ((now - previous_time > heartbeat_period_ms)) {
         if (heartbeat_mode == HEARTBEAT_MODE_HEARTBEAT) {
-            uint8_t bit  = digitalPinToBitMask(RED_LED);
-            PORTA.OUTTGL = bit;
+            /* uint8_t bit  = digitalPinToBitMask(RED_LED); */
+            /* PORTA.OUTTGL = bit; */
         }
+
+        if (current_data_value == 15) {
+            up = false;
+        } else if (current_data_value == 0) {
+            up = true;
+        }
+
+        current_data_value += up ? 1 : -1;
+
+        TCD0.CMPACLR = 0x000 + pwm_counts_by_data_value[current_data_value];
+        TCD0.CMPBSET = 0xFFF - pwm_counts_by_data_value[current_data_value];
+        debug_serial.print("current_data_value: ");
+        debug_serial.println(current_data_value);
+        pwm_timer_sync();
 
         previous_time = now;
     }
