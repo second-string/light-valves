@@ -13,7 +13,7 @@
 #define GREEN_LED PIN_PA7  // GREEN LED
 #define RED_LED PIN_PA6    // RED LED
 
-#define HEARTBEAT_PERIOD_DEFAULT_MS (1000)
+#define HEARTBEAT_PERIOD_DEFAULT_MS (2000)
 #define HEARTBEAT_PERIOD_ERROR_MS (60)
 
 #define DEBUG_MODE 0
@@ -44,7 +44,7 @@ typedef enum {
 
 // TODO :: non-linear opacity mapping here. Lowest values show no change (0 to 10, 10 to 20), then seems solid for a
 // bit, then highest values indistinguishable w/o light behind valve
-static const uint16_t pwm_counts_by_data_value[16] = {
+static const uint16_t pwm_counts_by_data_index[16] = {
     0,
     10,
     20,
@@ -77,12 +77,13 @@ static uint32_t clock_period_us;
 static uint32_t clock_period_padding_us;
 static uint8_t  data_edges_counted;
 static uint8_t  clock_edges_counted;
+static uint16_t edges = 0;
 
-static uint8_t  rx_start_bits;
-static uint8_t  rx_data_bits;
-static uint8_t  device_addr        = 0x1;  // TODO :: eventually this is set dynamically
-static uint16_t current_data_value = 0x0;
-static bool     up                 = true;  // TODO :: debug hack delete
+static uint8_t rx_start_bits;
+static uint8_t rx_data_bits;
+static uint8_t device_addr = 0x1;  // TODO :: eventually this is set dynamically
+static uint8_t rx_data[16] = {0x0};
+static uint8_t rx_data_idx = 0;
 
 /* #if DEBUG_MODE */
 static SoftwareSerial debug_serial(UART_RX, UART_TX);
@@ -90,6 +91,7 @@ static SoftwareSerial debug_serial(UART_RX, UART_TX);
 
 void data_pin_isr(void) {
     data_transition_flag = true;
+    edges++;
 }
 
 ISR(TCA0_OVF_vect) {
@@ -102,9 +104,11 @@ ISR(TCA0_OVF_vect) {
  * Set up timer to expected timeout values and enabled interrupt. Does not start timer
  */
 void timeout_timer_init(void) {
-    // With prescaler of 16 @ 20MHz (aka 1.25MHz) this is ~6.5ms. Currently a full packet is 13 bits @ 500us/bit,
-    // or 6.5ms total.
-    TCA0.SINGLE.PER = 8125 - 1;
+    // With prescaler of 16 @ 20MHz (aka 1.25MHz) 2000 tick period is 1.6ms. Should be se so if in worst case there's
+    // one extra transition at the end of the packet,, timeout timer will still expire and reset state before next
+    // packet starts.
+    // TCA0.SINGLE.PER = 8125 - 1;
+    TCA0.SINGLE.PER = 2000 - 1;
     TCA0.SINGLE.CNT = 0;
 
     // Divide 20MHz down to 5MHz
@@ -189,9 +193,17 @@ void pwm_timer_sync(void) {
     TCD0.CTRLE = TCD_SYNCEOC_bm;
 }
 
+void light_valve_set_opacity(uint8_t opacity_index) {
+    TCD0.CMPACLR = 0x000 + pwm_counts_by_data_index[opacity_index];
+    TCD0.CMPBSET = 0xFFF - pwm_counts_by_data_index[opacity_index];
+
+    // Values will never load into TCD buffers until re synced
+    pwm_timer_sync();
+}
+
 void setup() {
     timeout_timer_init();
-    pwm_timer_init();
+    /* pwm_timer_init(); */
 
     // - set up data pin as input and 2 light valve pins + test GPIO as output and low
     // - start pwm for output valve pins at either fully clear or fully opaque (TODO :: run a fancy startup or bink to
@@ -203,13 +215,14 @@ void setup() {
     // - set up light valve pins as output w/ PWM support
     // - set up timer with no period, that will be set from second pair of transitions in
     /////////////////////////
-    uint8_t bit  = digitalPinToBitMask(DATA_PIN);
-    PORTA.DIRSET = bit;
-    bit          = digitalPinToBitMask(PIN_PA4);
-    PORTA.DIRSET = bit;
-    /* PORTA.DIRCLR = bit; */
+
+    uint8_t bit = digitalPinToBitMask(DATA_PIN);
+    /* PORTA.DIRSET = bit; */
+    /* bit          = digitalPinToBitMask(PIN_PA4); */
+    /* PORTA.DIRSET = bit; */
+    PORTA.DIRCLR = bit;
     /* DATA_PIN_INT_CTRL_REG |= 0x1;   // interrupt on both edges - attiny 212 DS sec. 16.5.11 */
-    /* attachInterrupt(DATA_PIN, data_pin_isr, CHANGE); */
+    attachInterrupt(DATA_PIN, data_pin_isr, CHANGE);
 
     bit          = digitalPinToBitMask(RED_LED);
     PORTA.DIRSET = bit;
@@ -217,10 +230,8 @@ void setup() {
     PORTA.DIRSET = bit;
     PORTA.OUTCLR = 0xFF;
 
-    // TODO :: switch back to normal pindirs for PWM functionality
     bit          = digitalPinToBitMask(UART_TX);
     PORTB.DIRSET = bit;
-    PORTB.OUTCLR = 0xFF;
     bit          = digitalPinToBitMask(UART_RX);
     PORTB.DIRCLR = bit;
     /* bit          = digitalPinToBitMask(LIGHT_VALVE_PIN_1); */
@@ -229,27 +240,26 @@ void setup() {
     /* PORTB.DIRSET = bit; */
     /* PORTB.OUTCLR = 0xFF; */
 
+    // Init globals
     current_state        = DECODE_STATE_IDLE;
     data_transition_flag = false;
+    heartbeat_mode       = HEARTBEAT_MODE_DEBUG;
+    heartbeat_period_ms  = HEARTBEAT_PERIOD_DEFAULT_MS;
+    clock_rate_start_us  = 0;
+    clock_period_us      = (uint32_t)100 * 1000;
+    previous_time        = millis();
+    clock_edge_start     = 0;
+    data_edges_counted   = 0;
+    clock_edges_counted  = 0;
+    rx_data_idx          = 0;
+    memset(rx_data, 0, sizeof(rx_data));
 
-    // Default to toggle heartbeat ever half second. Transition to rapid blink indicates error.
-    heartbeat_mode      = HEARTBEAT_MODE_DEBUG;
-    heartbeat_period_ms = HEARTBEAT_PERIOD_ERROR_MS;
-    clock_rate_start_us = 0;
-    clock_period_us     = (uint32_t)500 * 1000;
-    previous_time       = millis();
-    clock_edge_start    = 0;
-    data_edges_counted  = 0;
-    clock_edges_counted = 0;
-
-    /* #if DEBUG_MODE */
     debug_serial.begin(9600);
-    debug_serial.println("Light valve node firmware");
-    /* #endif */
+    debug_serial.println("LVNF");
 
     // Globally enable interupts
     sei();
-    pwm_timer_start();
+    /* pwm_timer_start(); */
 }
 
 void loop() {
@@ -321,8 +331,13 @@ void loop() {
                 break;
             }
             case DECODE_STATE_MEASURING_CLOCK_RATE: {
-                clock_period_us         = now_us - clock_rate_start_us;
-                clock_period_padding_us = clock_period_us / 10;
+                clock_period_us = now_us - clock_rate_start_us;
+                uint8_t bit     = digitalPinToBitMask(RED_LED);
+                PORTA.OUTTGL    = bit;
+
+                // TODO :: tune this. Can be tight as /10 when clock period >= 200us, but below that need to widen
+                // envelop due to rise/fall time slew of signal at uC pin
+                clock_period_padding_us = clock_period_us / 5;
 
                 LOG("clck per us: ");
                 LOGLN(clock_period_us);
@@ -381,9 +396,8 @@ void loop() {
 
                             current_state = DECODE_STATE_READING_DATA;
                         } else {
-                            debug_serial.println("err DSRS strtbts");
-                            debug_serial.print("start bits: 0b");
-                            debug_serial.println(rx_start_bits, BIN);
+                            LOG("err strtbts: 0b");
+                            LOGLN(rx_start_bits, BIN);
                             current_state = DECODE_STATE_ERROR;
                         }
                     }
@@ -416,8 +430,8 @@ void loop() {
                             break;
                         }
                         default:
-                            debug_serial.print("err DSRD");
-                            debug_serial.println(data_edges_counted);
+                            LOG("err DSRD");
+                            LOGLN(data_edges_counted);
                             current_state = DECODE_STATE_ERROR;
                             break;
                     }
@@ -437,11 +451,15 @@ void loop() {
                         timeout_timer_stop();
                         uint8_t rx_addr_bits = (rx_data_bits & 0xF0) >> 4;
                         if (rx_addr_bits == device_addr) {
-                            debug_serial.print("rx data: 0b");
-                            debug_serial.println((rx_data_bits & 0x0F), BIN);
+                            light_valve_set_opacity(rx_data_bits & 0x0F);
+
+                            LOG("rx data: 0b");
+                            LOGLN((rx_data_bits & 0x0F), BIN);
+                            rx_data[rx_data_idx] = rx_data_bits & 0x0F;
+                            rx_data_idx++;
                         } else {
-                            debug_serial.print("rx wrong addr: ");
-                            debug_serial.println(rx_addr_bits, BIN);
+                            LOG("rx wrong addr: ");
+                            LOGLN(rx_addr_bits, BIN);
                         }
 
                         uint8_t bit   = digitalPinToBitMask(RED_LED);
@@ -475,19 +493,22 @@ void loop() {
             /* PORTA.OUTTGL = bit; */
         }
 
-        if (current_data_value == 15) {
-            up = false;
-        } else if (current_data_value == 0) {
-            up = true;
+        debug_serial.println(rx_data_idx, DEC);
+        /*
+         * Uncomment to print all 16 debug opacity values saved to debug buffer
+         *
+        if (rx_data_idx > 0) {
+            for (int i = 0; i < rx_data_idx; i++) {
+                debug_serial.print(rx_data[i]);
+                debug_serial.print(", ");
+                rx_data[i] = 0x0;
+                delay(50);
+            }
+
+            rx_data_idx = 0;
         }
-
-        current_data_value += up ? 1 : -1;
-
-        TCD0.CMPACLR = 0x000 + pwm_counts_by_data_value[current_data_value];
-        TCD0.CMPBSET = 0xFFF - pwm_counts_by_data_value[current_data_value];
-        debug_serial.print("current_data_value: ");
-        debug_serial.println(current_data_value);
-        pwm_timer_sync();
+        */
+        rx_data_idx = 0;
 
         previous_time = now;
     }
