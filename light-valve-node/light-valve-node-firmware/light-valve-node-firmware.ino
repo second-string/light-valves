@@ -12,6 +12,7 @@
 
 #define GREEN_LED PIN_PA7  // GREEN LED
 #define RED_LED PIN_PA6    // RED LED
+#define STROBE PIN_PA4
 
 #define HEARTBEAT_PERIOD_DEFAULT_MS (2000)
 #define HEARTBEAT_PERIOD_ERROR_MS (60)
@@ -42,6 +43,10 @@ typedef enum {
     DECODE_STATE_COUNT,
 } decode_state_t;
 
+// inline void timeout_timer_start(void) __attribute__((always_inline));
+// inline void timeout_timer_stop(void) __attribute__((always_inline));
+// inline void timeout_timer_refresh(void) __attribute__((always_inline));
+
 // TODO :: non-linear opacity mapping here. Lowest values show no change (0 to 10, 10 to 20), then seems solid for a
 // bit, then highest values indistinguishable w/o light behind valve
 static const uint16_t pwm_counts_by_data_index[16] = {
@@ -66,6 +71,9 @@ static const uint16_t pwm_counts_by_data_index[16] = {
 static volatile bool data_transition_flag;
 static volatile bool timeout;
 
+uint8_t                 gbit;
+uint8_t                 rbit;
+uint8_t                 sbit;
 static heartbeat_mode_t heartbeat_mode;
 static uint32_t         heartbeat_period_ms;
 static uint32_t         previous_time;
@@ -81,9 +89,13 @@ static uint16_t edges = 0;
 
 static uint8_t rx_start_bits;
 static uint8_t rx_data_bits;
-static uint8_t device_addr = 0x1;  // TODO :: eventually this is set dynamically
-static uint8_t rx_data[16] = {0x0};
-static uint8_t rx_data_idx = 0;
+static uint8_t device_addr    = 0x1;  // TODO :: eventually this is set dynamically
+static uint8_t num_packets_rx = 0;
+
+// TODO :: debugging delete
+uint8_t  elapsed[4];
+uint16_t elapsed_idx = 0;
+uint8_t  timeouts    = 0;
 
 /* #if DEBUG_MODE */
 static SoftwareSerial debug_serial(UART_RX, UART_TX);
@@ -91,7 +103,6 @@ static SoftwareSerial debug_serial(UART_RX, UART_TX);
 
 void data_pin_isr(void) {
     data_transition_flag = true;
-    edges++;
 }
 
 ISR(TCA0_OVF_vect) {
@@ -105,10 +116,11 @@ ISR(TCA0_OVF_vect) {
  */
 void timeout_timer_init(void) {
     // With prescaler of 16 @ 20MHz (aka 1.25MHz) 2000 tick period is 1.6ms. Should be se so if in worst case there's
-    // one extra transition at the end of the packet,, timeout timer will still expire and reset state before next
+    // one extra transition at the end of the packet, timeout timer will still expire and reset state before next
     // packet starts.
     // TCA0.SINGLE.PER = 8125 - 1;
-    TCA0.SINGLE.PER = 2000 - 1;
+    // TCA0.SINGLE.PER = 2000 - 1;
+    TCA0.SINGLE.PER = 400 - 1;
     TCA0.SINGLE.CNT = 0;
 
     // Divide 20MHz down to 5MHz
@@ -224,10 +236,12 @@ void setup() {
     /* DATA_PIN_INT_CTRL_REG |= 0x1;   // interrupt on both edges - attiny 212 DS sec. 16.5.11 */
     attachInterrupt(DATA_PIN, data_pin_isr, CHANGE);
 
-    bit          = digitalPinToBitMask(RED_LED);
-    PORTA.DIRSET = bit;
-    bit          = digitalPinToBitMask(GREEN_LED);
-    PORTA.DIRSET = bit;
+    gbit         = digitalPinToBitMask(GREEN_LED);
+    rbit         = digitalPinToBitMask(RED_LED);
+    sbit         = digitalPinToBitMask(STROBE);
+    PORTA.DIRSET = gbit;
+    PORTA.DIRSET = rbit;
+    PORTA.DIRSET = sbit;
     PORTA.OUTCLR = 0xFF;
 
     bit          = digitalPinToBitMask(UART_TX);
@@ -251,8 +265,6 @@ void setup() {
     clock_edge_start     = 0;
     data_edges_counted   = 0;
     clock_edges_counted  = 0;
-    rx_data_idx          = 0;
-    memset(rx_data, 0, sizeof(rx_data));
 
     debug_serial.begin(9600);
     debug_serial.println("LVNF");
@@ -262,8 +274,9 @@ void setup() {
     /* pwm_timer_start(); */
 }
 
-void loop() {
-    //////////////////////////
+uint8_t loop_iters = 0;
+void    loop() {
+       //////////////////////////
     // If running with simple edge-triggered interrupt:
     // - while in overall wait state, spin until receive a transition interrupt
     // - transition to preamble state and start timer
@@ -303,81 +316,89 @@ void loop() {
     // Timer is turned off unless we're actively decoding a packet so we don't need to check for state here. If there is
     // a timeout, reset state back to idle an stop timer
     if (timeout) {
-        timeout = false;
+           timeout = false;
 
-        timeout_timer_stop();
-        current_state = DECODE_STATE_IDLE;
-        uint8_t bit   = digitalPinToBitMask(GREEN_LED);
-        PORTA.OUTTGL  = bit;
+           PORTA.OUTTGL = rbit;
+           timeout_timer_stop();
+           elapsed_idx   = edges;
+           current_state = DECODE_STATE_IDLE;
+           timeouts++;
     }
 
     if (data_transition_flag) {
-        data_transition_flag = false;
+           edges++;
 
-        // Reset timer every time we get an incoming transition to trigger if we dont get all bits expected in a packet
-        timeout_timer_refresh();
+           data_transition_flag = false;
 
-        uint32_t now_us     = micros();
-        uint32_t elapsed_us = now_us - clock_edge_start;
-        switch (current_state) {
-            case DECODE_STATE_IDLE: {
-                // Got (assumed) first edge of a packet, start measuring clock rate and kick off timeout timer
+           // Reset timer every time we get an incoming transition to trigger if we dont get all bits expected in a packet
+           timeout_timer_refresh();
+
+           uint32_t now_us     = micros();
+           uint32_t elapsed_us = now_us - clock_edge_start;
+           switch (current_state) {
+               case DECODE_STATE_IDLE: {
+                   // Got (assumed) first edge of a packet, start measuring clock rate and kick off timeout timer
                 clock_rate_start_us = now_us;
                 timeout_timer_start();
 
-                uint8_t bit   = digitalPinToBitMask(RED_LED);
-                PORTA.OUTTGL  = bit;
+                PORTA.OUTTGL  = gbit;
                 current_state = DECODE_STATE_MEASURING_CLOCK_RATE;
                 break;
             }
-            case DECODE_STATE_MEASURING_CLOCK_RATE: {
-                clock_period_us = now_us - clock_rate_start_us;
-                uint8_t bit     = digitalPinToBitMask(RED_LED);
-                PORTA.OUTTGL    = bit;
+               case DECODE_STATE_MEASURING_CLOCK_RATE: {
+                   clock_period_us = now_us - clock_rate_start_us;
 
-                // TODO :: tune this. Can be tight as /10 when clock period >= 200us, but below that need to widen
-                // envelop due to rise/fall time slew of signal at uC pin
-                clock_period_padding_us = clock_period_us / 5;
+                   // TODO :: tune this
+                   // At clock periods shorter than 100uS, can't use division anymore
+                   clock_period_padding_us = clock_period_us >> 2;
 
-                LOG("clck per us: ");
-                LOGLN(clock_period_us);
-                current_state = DECODE_STATE_WAITING_FOR_START;
-                break;
+                   LOG("clck per us: ");
+                   LOGLN(clock_period_us);
+                   PORTA.OUTTGL  = gbit;
+                   current_state = DECODE_STATE_WAITING_FOR_START;
+                   break;
             }
-            case DECODE_STATE_WAITING_FOR_START: {
-                data_edges_counted  = 0;
-                clock_edges_counted = 0;
-                clock_edge_start    = now_us;
-                rx_start_bits       = 0x0;
+               case DECODE_STATE_WAITING_FOR_START: {
+                   data_edges_counted  = 0;
+                   clock_edges_counted = 0;
+                   clock_edge_start    = now_us;
+                   rx_start_bits       = 0x0;
 
-                current_state = DECODE_STATE_READING_START;
-                break;
+                   PORTA.OUTTGL  = gbit;
+                   current_state = DECODE_STATE_READING_START;
+                   break;
             }
-            case DECODE_STATE_READING_START: {
-                if (elapsed_us >= (clock_period_us - clock_period_padding_us) &&
-                    elapsed_us <= (clock_period_us + clock_period_padding_us)) {
-                    // Close to what our clock period should be,  restart clock_edge_start to right now (and potentially
-                    // update clock_period_us running avg) no matter what the stage of measurement we're in.
+               case DECODE_STATE_READING_START: {
+                   // ONLY CHECK THE BOTTOM BOUND HERE! If elapsed time is less than expected clock period with some
+                // padding, count it as a data pulse. Do NOT bound the upper end, as if the intended clock edge is a
+                // little late, we'd count it as a data edge, which would then throw everything off. We don't care if
+                // it's a bit over as we'll re-sync the clock at whatever time it is and continue using the same period,
+                // and if it's too long the timeout will take care of state
+                if (elapsed_us >= (clock_period_us - clock_period_padding_us)) {
+                       // Restart clock_edge_start to right now (and potentially update clock_period_us running avg) no
+                    // matter what the stage of measurement we're in.
                     clock_edge_start = now_us;
                     clock_edges_counted++;
+
+                    PORTA.OUTTGL = gbit;
 
                     // Push new data bit
                     rx_start_bits <<= 1;
                     switch (data_edges_counted) {
-                        case 0: {
-                            LOGLN("rx 1");
-                            rx_start_bits |= 0x1;
-                            break;
+                           case 0: {
+                               LOGLN("rx 1");
+                               rx_start_bits |= 0x1;
+                               break;
                         }
-                        case 1: {
-                            LOGLN("rx 0");
-                            rx_start_bits |= 0x0;
-                            break;
+                           case 1: {
+                               LOGLN("rx 0");
+                               rx_start_bits |= 0x0;
+                               break;
                         }
-                        default:
+                           default:
                             debug_serial.print("err DSRS");
                             debug_serial.println(data_edges_counted);
-                            current_state = DECODE_STATE_ERROR;
+                            current_state = DECODE_STATE_IDLE;
                             break;
                     }
 
@@ -387,52 +408,58 @@ void loop() {
                     // transition to read data state. Otherwise increment clock_edges_counted and reset
                     // data_edges_counted for the next clock period
                     if (clock_edges_counted == 4) {
-                        // RX all expected clock ticks for preamble, check for expected value
+                           // RX all expected clock ticks for preamble, check for expected value
                         LOG("start bits rx: 0b");
                         LOGLN(rx_start_bits, BIN);
                         if (rx_start_bits == 0xA) {
-                            clock_edges_counted = 0;
-                            rx_data_bits        = 0x00;
-
-                            current_state = DECODE_STATE_READING_DATA;
+                               clock_edges_counted = 0;
+                               rx_data_bits        = 0x00;
+                               current_state       = DECODE_STATE_READING_DATA;
                         } else {
-                            LOG("err strtbts: 0b");
-                            LOGLN(rx_start_bits, BIN);
-                            current_state = DECODE_STATE_ERROR;
+                               LOG("err strtbts: 0b");
+                               LOGLN(rx_start_bits, BIN);
+                               current_state = DECODE_STATE_IDLE;
                         }
                     }
                 } else {
-                    // Increment edge count since we haven't reached the end of the expected clock period yet
+                       // Increment edge count since we haven't reached the end of the expected clock period yet
                     data_edges_counted++;
+                    PORTA.OUTTGL = sbit;
                 }
 
-                break;
+                   break;
             }
             case DECODE_STATE_READING_DATA: {
-                if (elapsed_us >= (clock_period_us - clock_period_padding_us) &&
-                    elapsed_us <= (clock_period_us + clock_period_padding_us)) {
-                    // Close to what our clock period should be,  restart clock_edge_start to right now (and potentially
+                   // ONLY CHECK THE BOTTOM BOUND HERE! If elapsed time is less than expected clock period with some
+                // padding, count it as a data pulse. Do NOT bound the upper end, as if the intended clock edge is a
+                // little late, we'd count it as a data edge, which would then throw everything off. We don't care if
+                // it's a bit over as we'll re-sync the clock at whatever time it is and continue using the same period,
+                // and if it's too long the timeout will take care of state
+                if (elapsed_us >= (clock_period_us - clock_period_padding_us)) {
+                       // Restart clock_edge_start to right now (and potentially
                     // update clock_period_us running avg) no matter what the stage of measurement we're in.
                     clock_edge_start = now_us;
                     clock_edges_counted++;
 
+                    PORTA.OUTTGL = gbit;
+
                     // Push new data bit
                     rx_data_bits <<= 1;
                     switch (data_edges_counted) {
-                        case 0: {
-                            LOGLN("rx 1");
-                            rx_data_bits |= 0x1;
-                            break;
+                           case 0: {
+                               LOGLN("rx 1");
+                               rx_data_bits |= 0x1;
+                               break;
                         }
-                        case 1: {
-                            LOGLN("rx 0");
-                            rx_data_bits |= 0x0;
-                            break;
+                           case 1: {
+                               LOGLN("rx 0");
+                               rx_data_bits |= 0x0;
+                               break;
                         }
-                        default:
+                           default:
                             LOG("err DSRD");
                             LOGLN(data_edges_counted);
-                            current_state = DECODE_STATE_ERROR;
+                            current_state = DECODE_STATE_IDLE;
                             break;
                     }
 
@@ -441,7 +468,7 @@ void loop() {
                     // If we've reached the expected number of data clock periods, transition to check address state.
                     // Otherwise increment clock_edges_counted and reset data_edges_counted for the next clock period
                     if (clock_edges_counted == 8) {
-                        // RX all expected clock ticks for preamble, check for expected value
+                           // RX all expected clock ticks for preamble, check for expected value
                         LOG("data bits rx: 0x");
                         LOGLN(rx_data_bits, HEX);
                         clock_edges_counted = 0;
@@ -451,65 +478,80 @@ void loop() {
                         timeout_timer_stop();
                         uint8_t rx_addr_bits = (rx_data_bits & 0xF0) >> 4;
                         if (rx_addr_bits == device_addr) {
-                            light_valve_set_opacity(rx_data_bits & 0x0F);
+                               light_valve_set_opacity(rx_data_bits & 0x0F);
+                               num_packets_rx++;
 
-                            LOG("rx data: 0b");
-                            LOGLN((rx_data_bits & 0x0F), BIN);
-                            rx_data[rx_data_idx] = rx_data_bits & 0x0F;
-                            rx_data_idx++;
+                               LOG("rx data: 0b");
+                               LOGLN((rx_data_bits & 0x0F), BIN);
                         } else {
-                            LOG("rx wrong addr: ");
-                            LOGLN(rx_addr_bits, BIN);
+                               LOG("rx wrong addr: ");
+                               LOGLN(rx_addr_bits, BIN);
                         }
 
-                        uint8_t bit   = digitalPinToBitMask(RED_LED);
-                        PORTA.OUTTGL  = bit;
+                        // uint8_t bit   = digitalPinToBitMask(RED_LED);
+                        // PORTA.OUTTGL  = bit;
                         current_state = DECODE_STATE_IDLE;
                     }
                 } else {
-                    // Increment edge count since we haven't reached the end of the expected clock period yet
+                       // Increment edge count since we haven't reached the end of the expected clock period yet
                     data_edges_counted++;
+                    PORTA.OUTTGL = sbit;
                 }
 
-                break;
+                   break;
             }
             case DECODE_STATE_READING_END:
-                current_state = DECODE_STATE_ERROR;
+                current_state = DECODE_STATE_IDLE;
                 break;
             case DECODE_STATE_ERROR:
                 heartbeat_mode      = HEARTBEAT_MODE_HEARTBEAT;
                 heartbeat_period_ms = HEARTBEAT_PERIOD_ERROR_MS;
                 break;
-            default:
+               default:
                 break;
         }
     }
 
-    // Heartbeat for debug
-    unsigned long now = millis();
-    if ((now - previous_time > heartbeat_period_ms)) {
-        if (heartbeat_mode == HEARTBEAT_MODE_HEARTBEAT) {
-            /* uint8_t bit  = digitalPinToBitMask(RED_LED); */
-            /* PORTA.OUTTGL = bit; */
+    if (loop_iters > 200) {
+           loop_iters = 0;
+           // Heartbeat for debug
+           unsigned long now = millis();
+           if ((now - previous_time > heartbeat_period_ms)) {
+               // if (heartbeat_mode == HEARTBEAT_MODE_HEARTBEAT) {
+            // uint8_t bit  = digitalPinToBitMask(RED_LED);
+            // PORTA.OUTTGL = bit;
+            // }
+
+            /*
+         if (elapsed_idx > 0) {
+                for (int i = 0; i < elapsed_idx; i++) {
+                    debug_serial.print(elapsed[i]);
+                    debug_serial.print(", ");
+                    elapsed[i] = 0x0;
+                    delay(100);
+             }
+
+                debug_serial.println();
+
+                elapsed_idx = 0;
+         }
+         */
+
+            debug_serial.print(timeouts);
+            delay(50);
+            debug_serial.print('-');
+            delay(50);
+            debug_serial.print(num_packets_rx);
+            debug_serial.print('-');
+            debug_serial.println(elapsed_idx);
+            elapsed_idx    = 0;
+            timeouts       = 0;
+            edges          = 0;
+            num_packets_rx = 0;
+
+            previous_time = now;
         }
-
-        debug_serial.println(rx_data_idx, DEC);
-        /*
-         * Uncomment to print all 16 debug opacity values saved to debug buffer
-         *
-        if (rx_data_idx > 0) {
-            for (int i = 0; i < rx_data_idx; i++) {
-                debug_serial.print(rx_data[i]);
-                debug_serial.print(", ");
-                rx_data[i] = 0x0;
-                delay(50);
-            }
-
-            rx_data_idx = 0;
-        }
-        */
-        rx_data_idx = 0;
-
-        previous_time = now;
+    } else {
+           loop_iters++;
     }
 }

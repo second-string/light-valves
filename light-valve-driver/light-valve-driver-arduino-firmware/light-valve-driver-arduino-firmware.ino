@@ -4,7 +4,7 @@
 #define HEARTBEAT_PIN LED_BUILTIN
 #define DEBUG_INPUT_PIN 8
 
-#define CLOCK_PERIOD_US (100)
+#define CLOCK_PERIOD_US (50)
 
 static uint16_t heartbeat_period_ms;
 static uint32_t previous_heartbeat_time;
@@ -19,26 +19,14 @@ void send_bit(uint8_t bit) {
     if (bit) {
         delayMicroseconds(CLOCK_PERIOD_US);
         digitalWrite(DATA_OUT_PIN, !level);
-        digitalWrite(HEARTBEAT_PIN, !level);
-        /* Serial.print("transition @ "); */
-        /* now_ms = millis(); */
-        /* Serial.println(now_ms - last_transition); */
-        /* last_transition = now_ms; */
+        // digitalWrite(HEARTBEAT_PIN, !level);
     } else {
         delayMicroseconds(CLOCK_PERIOD_US / 2);
         digitalWrite(DATA_OUT_PIN, !level);
-        digitalWrite(HEARTBEAT_PIN, !level);
-        /* Serial.print("transition @ "); */
-        /* now_ms = millis(); */
-        /* Serial.println(now_ms - last_transition); */
-        /* last_transition = now_ms; */
+        // digitalWrite(HEARTBEAT_PIN, !level);
         delayMicroseconds(CLOCK_PERIOD_US / 2);
         digitalWrite(DATA_OUT_PIN, level);
-        digitalWrite(HEARTBEAT_PIN, level);
-        /* Serial.print("transition @ "); */
-        /* now_ms = millis(); */
-        /* Serial.println(now_ms - last_transition); */
-        /* last_transition = now_ms; */
+        // digitalWrite(HEARTBEAT_PIN, level);
     }
 }
 
@@ -46,11 +34,7 @@ void send_test_packet(uint8_t addr_nibble, uint8_t data_nibble) {
     // Initial transition
     uint8_t level = digitalRead(DATA_OUT_PIN);
     digitalWrite(DATA_OUT_PIN, !level);
-    digitalWrite(HEARTBEAT_PIN, !level);
-    /* last_transition = millis(); */
-    /* Serial.print("transition @ "); */
-    /* Serial.println(millis() - last_transition); */
-    /* last_transition = now_ms; */
+    // digitalWrite(HEARTBEAT_PIN, !level);
 
     // send clock rate
     send_bit(1);
@@ -85,9 +69,9 @@ void setup() {
     digitalWrite(DATA_OUT_PIN, HIGH);
 
     heartbeat_period_ms = 2000;
-    delay(500);
+    delay(3000);
     uint8_t addr = 0x1;
-    for (int i = 0; i < 16; i++) {
+    for (int i = 0; i < 32; i++) {
         if (i % 2 == 0) {
             addr = 0x1;
         } else {
