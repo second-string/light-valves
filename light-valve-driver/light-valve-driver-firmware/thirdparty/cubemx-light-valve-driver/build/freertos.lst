@@ -1,0 +1,31 @@
+ARM GAS  /var/folders/bs/_68147ln4jv13pgqtjvjqbww0000gn/T//ccyFs42A.s 			page 1
+
+
+   1              		.cpu cortex-m3
+   2              		.arch armv7-m
+   3              		.fpu softvfp
+   4              		.eabi_attribute 20, 1
+   5              		.eabi_attribute 21, 1
+   6              		.eabi_attribute 23, 3
+   7              		.eabi_attribute 24, 1
+   8              		.eabi_attribute 25, 1
+   9              		.eabi_attribute 26, 1
+  10              		.eabi_attribute 30, 1
+  11              		.eabi_attribute 34, 1
+  12              		.eabi_attribute 18, 4
+  13              		.file	"freertos.c"
+  14              		.text
+  15              	.Ltext0:
+  16              		.cfi_sections	.debug_frame
+  17              	.Letext0:
+  18              		.file 1 "/Users/brianteam/Downloads/arm-gnu-toolchain-11.3.rel1-darwin-x86_64-arm-none-eabi/arm-no
+  19              		.file 2 "/Users/brianteam/Downloads/arm-gnu-toolchain-11.3.rel1-darwin-x86_64-arm-none-eabi/arm-no
+  20              		.file 3 "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_dma.h"
+  21              		.file 4 "Drivers/STM32F1xx_HAL_Driver/Inc/stm32f1xx_ll_tim.h"
+ARM GAS  /var/folders/bs/_68147ln4jv13pgqtjvjqbww0000gn/T//ccyFs42A.s 			page 2
+
+
+DEFINED SYMBOLS
+                            *ABS*:0000000000000000 freertos.c
+
+NO UNDEFINED SYMBOLS
