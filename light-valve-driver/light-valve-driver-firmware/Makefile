@@ -47,9 +47,21 @@ C_SOURCES := $(CUBEMX_C_SOURCES) $(APP_C_SOURCES)
 # 'Actual' default target referenced by dummy default target listed before cubemx makefile is included
 app_default: $(APP_BUILD_DIR)/$(TARGET).elf
 
-# Override the 'build/*.o' target for all the cubemx files. I would have thought this would correctly know to use the
-# targets that match in the cubemx file, but even without the BUILD_DIR override hack above for the map file it can't
-# find them. This just executes the cubemx makefile's make target for each object file.
+# Override build dir dependency from our makefile's directory because main.o dependency below tries to make cubemx 'build' dir in
+# top level instead of within cubemx dir when we override it.
+$(CUBEMX_DIR)/$(CUBEMX_BUILD_DIR):
+	$(MAKE) -C $(CUBEMX_DIR) $(CUBEMX_BUILD_DIR)
+
+# Override SPECIFICALLY the main.o target to compile cubemx's main.c This is so we can force it to compile with one extra -I include
+# flag of ../../inc. This is necessary so it can include our app_main.h so it can correctly call the app_main() function. All other
+# cubemx *.o targets handled in override below which just passes call through to matching cubemx makefile target.
+$(CUBEMX_BUILD_DIR)/main.o: $(CUBEMX_DIR)/Src/main.c $(CUBEMX_DIR)/Makefile | $(CUBEMX_DIR)/$(CUBEMX_BUILD_DIR)
+	@cd $(CUBEMX_DIR); \
+	$(CC) -c $(CFLAGS) -I../../inc -Wa,-a,-ad,-alms=$(CUBEMX_BUILD_DIR)/$(notdir $(<:.c=.lst)) Src/main.c -o $@
+
+# Override the 'build/*.o' target for all the cubemx files that aren't main.o to simply call the cubemx makefile target for them.
+# I would have thought this would correctly know to use the targets that match in the cubemx file, but even without the BUILD_DIR
+# override hack above for the map file it can't find them.
 $(CUBEMX_BUILD_DIR)/%.o:
 	@$(MAKE) -C $(CUBEMX_DIR) $@
 
