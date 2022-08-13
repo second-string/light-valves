@@ -1,0 +1,16 @@
+"Qty";"Value";"Device";"Package";"Parts";"Description";"";
+"8";"";"PINHD-1X1";"1X01";"D, D_INV, GND, GND3, LCD_A, LCD_B, RX, TX";"PIN HEADER";"";
+"1";"";"PINHD-1X2";"1X02";"JP1";"PIN HEADER";"";
+"2";"0";"R-US_R0805";"R0805";"R5, R6";"RESISTOR, American symbol";"";
+"1";"0.1uF";"C-EUC0805";"C0805";"C3";"CAPACITOR, European symbol";"";
+"1";"10uF";"C-EUC0805";"C0805";"C1";"CAPACITOR, European symbol";"";
+"2";"1uF";"C-EUC0805";"C0805";"C2, C4";"CAPACITOR, European symbol";"";
+"1";"2.2k";"R-US_R0805";"R0805";"R3";"RESISTOR, American symbol";"";
+"2";"22";"R-US_R0805";"R0805";"R1, R2";"RESISTOR, American symbol";"";
+"1";"470";"R-US_R0805";"R0805";"R4";"RESISTOR, American symbol";"";
+"1";"ATTINY212-SSFR";"ATTINY212-SSFR";"SOIC127P600X175-8N";"U3";"None Check availability";"";
+"1";"MB6S";"MB6S";"SOIC245P670X270-4N";"U1";"MB6S Series 600 V 0.5 A 5 uA Surface Mount Bridge Rectifier - SOIC-4 Check availability";"";
+"1";"NCP718ASN500T1G";"NCP718ASN500T1G";"SOT95P280X100-5N";"U2";"LDO Voltage Regulators 300 MA LOW IQ WIDE INPUT 5.0V";"";
+"1";"RB751V-40_RR";"RB751V-40_RR";"DIO_RB751V-40_RR";"D1";"Check availability";"";
+"2";"RCWCTE";"RCWCTE";"RESC3216X70N";"GND4, GND5";"Res 1206 0 Ohm Metal SMD Automotive Embossed Plastic T/R Check availability";"";
+"7";"TPB1,27";"TPB1,27";"B1,27";"5V, 5V_FILT, 5V_RAW, DATA, LCD_A_TP, LCD_B_TP, UPDI";"Test pad";"";
