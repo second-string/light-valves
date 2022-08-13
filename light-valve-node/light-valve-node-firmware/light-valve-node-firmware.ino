@@ -15,7 +15,7 @@
 #define STROBE PIN_PA4
 
 #define HEARTBEAT_PERIOD_DEFAULT_MS (2000)
-#define HEARTBEAT_PERIOD_ERROR_MS (60)
+#define HEARTBEAT_PERIOD_ERROR_MS (10)
 
 #define DEBUG_MODE 0
 #if DEBUG_MODE
@@ -257,7 +257,7 @@ void setup() {
     // Init globals
     current_state        = DECODE_STATE_IDLE;
     data_transition_flag = false;
-    heartbeat_mode       = HEARTBEAT_MODE_DEBUG;
+    heartbeat_mode       = HEARTBEAT_MODE_HEARTBEAT;
     heartbeat_period_ms  = HEARTBEAT_PERIOD_DEFAULT_MS;
     clock_rate_start_us  = 0;
     clock_period_us      = (uint32_t)100 * 1000;
@@ -341,7 +341,6 @@ void    loop() {
                 clock_rate_start_us = now_us;
                 timeout_timer_start();
 
-                PORTA.OUTTGL  = gbit;
                 current_state = DECODE_STATE_MEASURING_CLOCK_RATE;
                 break;
             }
@@ -354,7 +353,6 @@ void    loop() {
 
                    LOG("clck per us: ");
                    LOGLN(clock_period_us);
-                   PORTA.OUTTGL  = gbit;
                    current_state = DECODE_STATE_WAITING_FOR_START;
                    break;
             }
@@ -364,7 +362,6 @@ void    loop() {
                    clock_edge_start    = now_us;
                    rx_start_bits       = 0x0;
 
-                   PORTA.OUTTGL  = gbit;
                    current_state = DECODE_STATE_READING_START;
                    break;
             }
@@ -379,8 +376,6 @@ void    loop() {
                     // matter what the stage of measurement we're in.
                     clock_edge_start = now_us;
                     clock_edges_counted++;
-
-                    PORTA.OUTTGL = gbit;
 
                     // Push new data bit
                     rx_start_bits <<= 1;
@@ -440,8 +435,6 @@ void    loop() {
                     // update clock_period_us running avg) no matter what the stage of measurement we're in.
                     clock_edge_start = now_us;
                     clock_edges_counted++;
-
-                    PORTA.OUTTGL = gbit;
 
                     // Push new data bit
                     rx_data_bits <<= 1;
@@ -512,46 +505,30 @@ void    loop() {
         }
     }
 
-    if (loop_iters > 200) {
-           loop_iters = 0;
-           // Heartbeat for debug
-           unsigned long now = millis();
-           if ((now - previous_time > heartbeat_period_ms)) {
-               // if (heartbeat_mode == HEARTBEAT_MODE_HEARTBEAT) {
-            // uint8_t bit  = digitalPinToBitMask(RED_LED);
-            // PORTA.OUTTGL = bit;
-            // }
+    // if (loop_iters > 200) {
+    //        loop_iters = 0;
+    // Heartbeat for debug
+    unsigned long now = millis();
+    if ((now - previous_time > heartbeat_period_ms)) {
+           // if (heartbeat_mode == HEARTBEAT_MODE_HEARTBEAT) {
+        //     PORTA.OUTTGL = gbit;
+        // }
 
-            /*
-         if (elapsed_idx > 0) {
-                for (int i = 0; i < elapsed_idx; i++) {
-                    debug_serial.print(elapsed[i]);
-                    debug_serial.print(", ");
-                    elapsed[i] = 0x0;
-                    delay(100);
-             }
+        debug_serial.print(timeouts);
+        delay(50);
+        debug_serial.print('-');
+        delay(50);
+        debug_serial.println(num_packets_rx);
+        timeouts       = 0;
+        num_packets_rx = 0;
 
-                debug_serial.println();
+        // debug_serial.println(elapsed_idx);
+        // elapsed_idx = 0;
+        // edges       = 0;
 
-                elapsed_idx = 0;
-         }
-         */
-
-            debug_serial.print(timeouts);
-            delay(50);
-            debug_serial.print('-');
-            delay(50);
-            debug_serial.print(num_packets_rx);
-            debug_serial.print('-');
-            debug_serial.println(elapsed_idx);
-            elapsed_idx    = 0;
-            timeouts       = 0;
-            edges          = 0;
-            num_packets_rx = 0;
-
-            previous_time = now;
-        }
-    } else {
-           loop_iters++;
+        previous_time = now;
     }
+    // } else {
+       //        loop_iters++;
+    // }
 }
