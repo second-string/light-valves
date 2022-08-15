@@ -1,10 +1,17 @@
 // Pull the pin name definitions from freertos main.h
 #include "main.h"
 
+#include "stm32f1xx_hal.h"
+
 #include "FreeRTOS.h"
 
+#include "cli_commands.h"
+#include "cli_task.h"
 #include "gpio.h"
 #include "heartbeat_task.h"
+#include "uart.h"
+
+static uart_handle_t cli_uart_handle;
 
 gpio_pin_t devboard_led_pin = {
     .port = DEVBOARD_LED_GPIO_Port,
@@ -61,16 +68,40 @@ gpio_pin_t xcvr_ro_pin = {
 };
 
 void app_init(void) {
+    // NULL passed for process_char callback, see cli_task_init for reasoning
+    uart_init(&huart2,
+              CLI_UART_RX_RING_BUFFER_BYTES,
+              CLI_UART_TX_RING_BUFFER_BYTES,
+              CLI_UART_QUEUE_SIZE,
+              CLI_UART_RX_BUFFER_BYTES,
+              NULL,
+              &cli_uart_handle);
+    cli_task_init(&cli_uart_handle);
+    cli_command_register_all();
+
     heartbeat_task_init(&devboard_led_pin);
 }
 
 void app_start(void) {
     heartbeat_task_start();
+    cli_task_start();
 }
 
 void app_main(void) {
     app_init();
     app_start();
+
+    size_t info_buffer_size = 200 * sizeof(char);
+    char   info_buffer[info_buffer_size];
+    HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
+    HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
+    while (cli_command_info(info_buffer, info_buffer_size, NULL) == pdTRUE) {
+        HAL_UART_Transmit(&huart2, (uint8_t *)info_buffer, info_buffer_size, portMAX_DELAY);
+    }
+    HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
+    HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
+    // free(info_buffer);
+    // info_buffer = NULL;
 
     while (1) {
     }
