@@ -13,6 +13,9 @@ include $(CUBEMX_MAKEFILE)
 # Re-assign OBJECTS to CUBEMX_OBJECTS and prefix with path to cubemx build dir from here
 CUBEMX_UNALTERED_OBJECTS := $(OBJECTS)
 CUBEMX_OBJECTS := $(addprefix $(CUBEMX_DIR)/,$(CUBEMX_UNALTERED_OBJECTS))
+CUBEMX_C_INCLUDES := $(C_INCLUDES)
+CUBEMX_C_INCLUDES := $(CUBEMX_C_INCLUDES:-I%=%) # Strip leading '-I's out so we can stick path prefix in
+CUBEMX_C_INCLUDES := $(addprefix -I$(CUBEMX_DIR)/,$(CUBEMX_C_INCLUDES)) # Add '-I' and cubemx thirdparty path back in
 CUBEMX_C_SOURCES := $(C_SOURCES)
 CUBEMX_C_SOURCES := $(addprefix $(CUBEMX_DIR)/,$(CUBEMX_C_SOURCES))
 
@@ -30,7 +33,9 @@ APP_BUILD_DIR=out/
 BUILD_DIR := $(APP_BUILD_DIR)
 
 APP_INCLUDES = -Iinc
-APP_C_SOURCES = src/app_main.c
+APP_C_SOURCES = \
+src/app_main.c \
+src/gpio.c
 APP_ASM_SOURCES = 
 
 # Create correctly prefixed object list for application source files
@@ -41,8 +46,12 @@ vpath %.s $(sort $(dir $(ASM_SOURCES)))
 
 # Bundle app-specific and cubemx variables for use in our compilation targets
 OBJECTS := $(CUBEMX_OBJECTS) $(APP_OBJECTS)
-INCLUDES := $(CUBEMX_C_SOURCES) $(APP_INCLUDES)
+INCLUDES := $(CUBEMX_C_INCLUDES) $(APP_INCLUDES)
 C_SOURCES := $(CUBEMX_C_SOURCES) $(APP_C_SOURCES)
+APP_CFLAGS := $(MCU) $(C_DEFS) $(INCLUDES) $(OPT) -Wall -Werror -fdata-sections -ffunction-sections -MMD -MP -MF"$(@:%.o=%.d)"
+ifeq ($(DEBUG), 1)
+APP_CFLAGS += -g -gdwarf-2
+endif
 
 # 'Actual' default target referenced by dummy default target listed before cubemx makefile is included
 app_default: $(APP_BUILD_DIR)/$(TARGET).elf
@@ -67,11 +76,11 @@ $(CUBEMX_BUILD_DIR)/%.o:
 
 # Build app object files from app C source files
 $(APP_BUILD_DIR)/%.o: %.c Makefile | $(APP_BUILD_DIR) 
-	$(CC) -c $(CFLAGS) -Wa,-a,-ad,-alms=$(APP_BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
+	$(CC) -c $(APP_CFLAGS) -Wa,-a,-ad,-alms=$(APP_BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
 
 # Build app object files from app assembly source files
 $(APP_BUILD_DIR)/%.o: %.s Makefile | $(APP_BUILD_DIR)
-	$(AS) -c $(CFLAGS) $< -o $@
+	$(AS) -c $(APP_CFLAGS) $< -o $@
 
 # Build the elf !
 $(APP_BUILD_DIR)/$(TARGET).elf: $(APP_OBJECTS) $(CUBEMX_UNALTERED_OBJECTS)  Makefile
