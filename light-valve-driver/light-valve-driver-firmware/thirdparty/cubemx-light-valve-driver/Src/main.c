@@ -23,7 +23,9 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 
+#include "FreeRTOS.h"
 #include "app_main.h"
+#include "task.h"
 
 /* USER CODE END Includes */
 
@@ -50,7 +52,7 @@ UART_HandleTypeDef huart2;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 256 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
@@ -138,6 +140,7 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_EVENTS */
     /* add events, ... */
+    // vTaskStartScheduler();
   /* USER CODE END RTOS_EVENTS */
 
   /* Start scheduler */
@@ -394,11 +397,12 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
     app_main();
+    osThreadTerminate(defaultTaskHandle);
 
     /* Infinite loop */
-    for (;;) {
-        osDelay(1);
-    }
+    // for (;;) {
+    //     osDelay(1);
+    // }
   /* USER CODE END 5 */
 }
 

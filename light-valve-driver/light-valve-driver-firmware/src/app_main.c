@@ -1,9 +1,12 @@
+#include <string.h>
+
 // Pull the pin name definitions from freertos main.h
 #include "main.h"
 
 #include "stm32f1xx_hal.h"
 
 #include "FreeRTOS.h"
+#include "task.h"
 
 #include "cli_commands.h"
 #include "cli_task.h"
@@ -96,13 +99,11 @@ void app_main(void) {
     HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
     HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
     while (cli_command_info(info_buffer, info_buffer_size, NULL) == pdTRUE) {
-        HAL_UART_Transmit(&huart2, (uint8_t *)info_buffer, info_buffer_size, portMAX_DELAY);
+        HAL_UART_Transmit(&huart2, (uint8_t *)info_buffer, strlen(info_buffer), portMAX_DELAY);
+        HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
     }
     HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
     HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
     // free(info_buffer);
     // info_buffer = NULL;
-
-    while (1) {
-    }
 }

@@ -34,7 +34,8 @@ const char *backspace = "\x08\x20\x08";
 const char *newline   = "\r\n";
 
 static void cli_process_char(char c) {
-    if (c == 0x08) {
+    // Handle BS and DEL ascii chars
+    if (c == 0x08 || c == 0x7F) {
         command_buffer[--command_char_idx] = 0x00;
         // Echo out a backspace to move the cursor back, a space to cover up the old char, then another backspace to
         // remove the space. Don't put any of it in our buffer because we dgaf about those shenanigans to make it look
@@ -92,6 +93,7 @@ static void cli_process_command(void *args) {
                               (uint8_t *)command_processing_out,
                               strlen(command_processing_out),
                               portMAX_DELAY);
+            HAL_UART_Transmit(&huart2, (uint8_t *)newline, strlen(newline), portMAX_DELAY);
         } while (more_data);
 
         // Free the string malloced by uart rx task
@@ -122,8 +124,8 @@ void cli_task_init(uart_handle_t *uart_handle) {
 
 void cli_task_start() {
     BaseType_t rval =
-        xTaskCreate(uart_generic_rx_task, "CLI UART RX", configMINIMAL_STACK_SIZE * 3, handle, CLI_TASK_PRIORITY, NULL);
-    configASSERT(rval);
+        xTaskCreate(uart_generic_rx_task, "CLI UART RX", configMINIMAL_STACK_SIZE * 6, handle, CLI_TASK_PRIORITY, NULL);
+    configASSERT(rval == pdTRUE);
 
     rval = xTaskCreate(cli_process_command,
                        "CLI cmd process",

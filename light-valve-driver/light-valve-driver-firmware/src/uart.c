@@ -21,8 +21,8 @@ void uart_init(UART_HandleTypeDef *uart,
     configASSERT(uart);
     cli_uart = uart;
 
-    handle->rx_buffer = pvPortMalloc(sizeof(char) * rx_buffer_size);
-    configASSERT(handle->rx_buffer);
+    // handle->rx_buffer = pvPortMalloc(sizeof(char) * rx_buffer_size);
+    // configASSERT(handle->rx_buffer);
 
     handle->process_char = process_char_cb;
 }
@@ -38,12 +38,12 @@ void uart_generic_rx_task(void *args) {
         // const int bytes_read = uart_read_bytes(handle->port, handle->rx_buffer, 1, portMAX_DELAY);
         HAL_UART_Receive(cli_uart, &c, sizeof(uint8_t), portMAX_DELAY);
         if (handle->process_char) {
-            handle->process_char(handle->rx_buffer[0]);
+            handle->process_char(c);
         } else {
             char  *base     = "uart_generic_rx_task RX byte, no process_byte handler:";
             size_t base_len = strlen(base);
             char   full[base_len + 3];
-            sprintf(full, "%s %c", base, handle->rx_buffer[0]);
+            sprintf(full, "%s %c", base, c);
             HAL_UART_Transmit(cli_uart, (uint8_t *)full, strlen(full), portMAX_DELAY);
         }
     }
