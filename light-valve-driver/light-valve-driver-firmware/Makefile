@@ -1,7 +1,9 @@
 MAKE=make
 
-CUBEMX_DIR=./thirdparty/cubemx-light-valve-driver
+THIRDPARTY_DIR=./thirdparty
+CUBEMX_DIR=$(THIRDPARTY_DIR)/cubemx-light-valve-driver
 CUBEMX_MAKEFILE=$(CUBEMX_DIR)/Makefile
+FREERTOS_CLI_DIR=$(THIRDPARTY_DIR)/FreeRTOS-Plus-CLI
 
 # Can't use 'app' as default target name since that's cubemx's
 default: app_default
@@ -18,13 +20,14 @@ CUBEMX_C_INCLUDES := $(CUBEMX_C_INCLUDES:-I%=%) # Strip leading '-I's out so we 
 CUBEMX_C_INCLUDES := $(addprefix -I$(CUBEMX_DIR)/,$(CUBEMX_C_INCLUDES)) # Add '-I' and cubemx thirdparty path back in
 CUBEMX_C_SOURCES := $(C_SOURCES)
 CUBEMX_C_SOURCES := $(addprefix $(CUBEMX_DIR)/,$(CUBEMX_C_SOURCES))
-
 LDSCRIPT := $(addprefix $(CUBEMX_DIR)/,$(LDSCRIPT))
+FREERTOS_CLI_C_INCLUDES := -I$(FREERTOS_CLI_DIR)
+FREERTOS_CLI_C_SOURCES := $(addprefix $(FREERTOS_CLI_DIR)/,FreeRTOS_CLI.c)
 
 # Save original build dir relative to cubemx dir to use for cubemx specific target
 CUBEMX_BUILD_DIR := $(BUILD_DIR)
 
-APP_BUILD_DIR=out/
+APP_BUILD_DIR=out
 
 # This is a bit of a hack. We're overriding BUILD_DIR used in the cubemx makefile so the invocation of
 # `-Map=$(BUILD_DIR)/$(TARGET).map` in the assignment of LDFLAGS works. Ideally ST would use a separate
@@ -33,9 +36,20 @@ APP_BUILD_DIR=out/
 BUILD_DIR := $(APP_BUILD_DIR)
 
 APP_INCLUDES = -Iinc
+
 APP_C_SOURCES = \
 src/app_main.c \
-src/gpio.c
+src/gpio.c \
+src/heartbeat_task.c \
+src/cli_task.c \
+src/uart.c \
+src/cli_commands.c
+
+
+# TODO this needs to be extended to cycle through all thirdparty dirs
+THIRDPARTY_OBJECTS += $(addprefix $(APP_BUILD_DIR)/,$(notdir $(FREERTOS_CLI_C_SOURCES:.c=.o)))
+vpath %.c $(sort $(dir $(FREERTOS_CLI_C_SOURCES)))
+
 APP_ASM_SOURCES = 
 
 # Create correctly prefixed object list for application source files
@@ -45,9 +59,9 @@ APP_OBJECTS += $(addprefix $(APP_BUILD_DIR)/,$(notdir $(APP_ASM_SOURCES:.s=.o)))
 vpath %.s $(sort $(dir $(ASM_SOURCES)))
 
 # Bundle app-specific and cubemx variables for use in our compilation targets
-OBJECTS := $(CUBEMX_OBJECTS) $(APP_OBJECTS)
-INCLUDES := $(CUBEMX_C_INCLUDES) $(APP_INCLUDES)
-C_SOURCES := $(CUBEMX_C_SOURCES) $(APP_C_SOURCES)
+OBJECTS := $(CUBEMX_OBJECTS) $(APP_OBJECTS) $(THIRDPARTY_OBJECTS)
+INCLUDES := $(CUBEMX_C_INCLUDES) $(APP_INCLUDES) $(FREERTOS_CLI_C_INCLUDES)
+C_SOURCES := $(CUBEMX_C_SOURCES) $(APP_C_SOURCES) $(FREERTOS_CLI_C_SOURCES)
 APP_CFLAGS := $(MCU) $(C_DEFS) $(INCLUDES) $(OPT) -Wall -Werror -fdata-sections -ffunction-sections -MMD -MP -MF"$(@:%.o=%.d)"
 ifeq ($(DEBUG), 1)
 APP_CFLAGS += -g -gdwarf-2
@@ -55,6 +69,9 @@ endif
 
 # 'Actual' default target referenced by dummy default target listed before cubemx makefile is included
 app_default: $(APP_BUILD_DIR)/$(TARGET).elf
+
+$(APP_BUILD_DIR)/FreeRTOS_CLI.o: $(FREERTOS_CLI_DIR)/FreeRTOS_CLI.c Makefile | $(APP_BUILD_DIR) 
+	$(CC) -c $(APP_CFLAGS) -Wa,-a,-ad,-alms=$(APP_BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
 
 # Override build dir dependency from our makefile's directory because main.o dependency below tries to make cubemx 'build' dir in
 # top level instead of within cubemx dir when we override it.
@@ -83,7 +100,7 @@ $(APP_BUILD_DIR)/%.o: %.s Makefile | $(APP_BUILD_DIR)
 	$(AS) -c $(APP_CFLAGS) $< -o $@
 
 # Build the elf !
-$(APP_BUILD_DIR)/$(TARGET).elf: $(APP_OBJECTS) $(CUBEMX_UNALTERED_OBJECTS)  Makefile
+$(APP_BUILD_DIR)/$(TARGET).elf: $(APP_OBJECTS) $(CUBEMX_UNALTERED_OBJECTS) $(THIRDPARTY_OBJECTS)  Makefile
 	$(CC) $(OBJECTS) $(LDFLAGS) -o $@
 	$(SZ) $@
 
