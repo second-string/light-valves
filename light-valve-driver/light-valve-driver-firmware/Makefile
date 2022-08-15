@@ -1,4 +1,5 @@
 MAKE=make
+GDB=arm-none-eabi-gdb
 
 THIRDPARTY_DIR=./thirdparty
 CUBEMX_DIR=$(THIRDPARTY_DIR)/cubemx-light-valve-driver
@@ -111,6 +112,17 @@ $(BUILD_DIR)/%.hex: $(BUILD_DIR)/%.elf | $(BUILD_DIR)
 # Generate build dir if doesn't exist
 $(APP_BUILD_DIR):
 	mkdir $@
+
+#######################################
+# debug
+#######################################
+.PHONY: debug
+debug:
+	$(GDB) -tui $(BUILD_DIR)/$(TARGET).elf
+
+.PHONY: server
+server:
+	openocd -f interface/stlink-v2.cfg -f target/stm32f1x.cfg
 
 # I don't know how to get this to be called 'clean' without the error for overriding the cubemx makefile one
 .PHONY: appclean
