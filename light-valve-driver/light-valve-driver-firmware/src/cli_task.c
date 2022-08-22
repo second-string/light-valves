@@ -124,7 +124,7 @@ void cli_task_init(uart_handle_t *uart_handle) {
 
 void cli_task_start() {
     BaseType_t rval =
-        xTaskCreate(uart_generic_rx_task, "CLI UART RX", configMINIMAL_STACK_SIZE * 6, handle, CLI_TASK_PRIORITY, NULL);
+        xTaskCreate(uart_generic_rx_task, "CLI UART RX", configMINIMAL_STACK_SIZE * 4, handle, CLI_TASK_PRIORITY, NULL);
     configASSERT(rval == pdTRUE);
 
     rval = xTaskCreate(cli_process_command,
@@ -133,4 +133,5 @@ void cli_task_start() {
                        queue_handle,
                        CLI_CMD_PROCESS_TASK_PRIORITY,
                        NULL);
+    configASSERT(rval == pdTRUE);
 }

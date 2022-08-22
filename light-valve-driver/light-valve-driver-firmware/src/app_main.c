@@ -12,9 +12,14 @@
 #include "cli_task.h"
 #include "gpio.h"
 #include "heartbeat_task.h"
+#include "input_data_task.h"
+#include "output_data_task.h"
 #include "uart.h"
 
-static uart_handle_t cli_uart_handle;
+static uart_handle_t             cli_uart_handle;
+static uart_handle_t             xcvr_uart_handle;
+static input_data_task_handle_t  input_data_task_handle;
+static output_data_task_handle_t output_data_task_handle;
 
 gpio_pin_t devboard_led_pin = {
     .port = DEVBOARD_LED_GPIO_Port,
@@ -71,6 +76,11 @@ gpio_pin_t xcvr_ro_pin = {
 };
 
 void app_init(void) {
+    output_data_task_init(&data_pin, &output_data_task_handle);
+
+    uart_init(&huart1, 0, 0, 0, 0, NULL, &xcvr_uart_handle);
+    input_data_task_init(&xcvr_uart_handle, &input_data_task_handle);
+
     // NULL passed for process_char callback, see cli_task_init for reasoning
     uart_init(&huart2,
               CLI_UART_RX_RING_BUFFER_BYTES,
@@ -86,8 +96,10 @@ void app_init(void) {
 }
 
 void app_start(void) {
-    heartbeat_task_start();
+    input_data_task_start(&input_data_task_handle);
+    output_data_task_start(&output_data_task_handle);
     cli_task_start();
+    heartbeat_task_start();
 }
 
 void app_main(void) {
@@ -104,6 +116,4 @@ void app_main(void) {
     }
     HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
     HAL_UART_Transmit(&huart2, (uint8_t *)"\r\n", 2, portMAX_DELAY);
-    // free(info_buffer);
-    // info_buffer = NULL;
 }

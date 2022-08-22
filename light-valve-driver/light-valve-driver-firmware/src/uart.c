@@ -6,8 +6,6 @@
 
 #include "uart.h"
 
-UART_HandleTypeDef *cli_uart;
-
 /*
  * Most init functionality done by cubemx in generated MX init in main.c
  */
@@ -19,12 +17,12 @@ void uart_init(UART_HandleTypeDef *uart,
                process_char_func   process_char_cb,
                uart_handle_t      *handle) {
     configASSERT(uart);
-    cli_uart = uart;
 
     // handle->rx_buffer = pvPortMalloc(sizeof(char) * rx_buffer_size);
     // configASSERT(handle->rx_buffer);
 
     handle->process_char = process_char_cb;
+    handle->uart         = uart;
 }
 
 void uart_generic_rx_task(void *args) {
@@ -33,10 +31,8 @@ void uart_generic_rx_task(void *args) {
 
     uint8_t c;
     while (1) {
-        // Underlying impl uses esp-freertos xRingBufferReceive which I'm pretty sure used a freertos primitive below
-        // it, so this portMAX_DELAY should do our regular yield like we want instead of spinning
-        // const int bytes_read = uart_read_bytes(handle->port, handle->rx_buffer, 1, portMAX_DELAY);
-        HAL_UART_Receive(cli_uart, &c, sizeof(uint8_t), portMAX_DELAY);
+        // Blocking forever for now
+        HAL_UART_Receive(handle->uart, &c, sizeof(uint8_t), portMAX_DELAY);
         if (handle->process_char) {
             handle->process_char(c);
         } else {
@@ -44,7 +40,7 @@ void uart_generic_rx_task(void *args) {
             size_t base_len = strlen(base);
             char   full[base_len + 3];
             sprintf(full, "%s %c", base, c);
-            HAL_UART_Transmit(cli_uart, (uint8_t *)full, strlen(full), portMAX_DELAY);
+            HAL_UART_Transmit(handle->uart, (uint8_t *)full, strlen(full), portMAX_DELAY);
         }
     }
 }
