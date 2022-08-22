@@ -44,7 +44,9 @@ src/gpio.c \
 src/heartbeat_task.c \
 src/cli_task.c \
 src/uart.c \
-src/cli_commands.c
+src/cli_commands.c \
+src/input_data_task.c \
+src/output_data_task.c
 
 
 # TODO this needs to be extended to cycle through all thirdparty dirs
@@ -63,7 +65,7 @@ vpath %.s $(sort $(dir $(ASM_SOURCES)))
 OBJECTS := $(CUBEMX_OBJECTS) $(APP_OBJECTS) $(THIRDPARTY_OBJECTS)
 INCLUDES := $(CUBEMX_C_INCLUDES) $(APP_INCLUDES) $(FREERTOS_CLI_C_INCLUDES)
 C_SOURCES := $(CUBEMX_C_SOURCES) $(APP_C_SOURCES) $(FREERTOS_CLI_C_SOURCES)
-APP_CFLAGS := $(MCU) $(C_DEFS) $(INCLUDES) $(OPT) -Wall -Werror -fdata-sections -ffunction-sections -MMD -MP -MF"$(@:%.o=%.d)"
+APP_CFLAGS := $(MCU) $(C_DEFS) $(INCLUDES) $(OPT) -Wall -Werror -fdata-sections -ffunction-sections
 ifeq ($(DEBUG), 1)
 APP_CFLAGS += -g -gdwarf-2
 endif
@@ -94,11 +96,11 @@ $(CUBEMX_BUILD_DIR)/%.o:
 
 # Build app object files from app C source files
 $(APP_BUILD_DIR)/%.o: %.c Makefile | $(APP_BUILD_DIR) 
-	$(CC) -c $(APP_CFLAGS) -Wa,-a,-ad,-alms=$(APP_BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
+	$(CC) -c $(APP_CFLAGS) -MMD -MP -MF"$@" -Wa,-a,-ad,-alms=$(APP_BUILD_DIR)/$(notdir $(<:.c=.lst)) $< -o $@
 
 # Build app object files from app assembly source files
 $(APP_BUILD_DIR)/%.o: %.s Makefile | $(APP_BUILD_DIR)
-	$(AS) -c $(APP_CFLAGS) $< -o $@
+	$(AS) -c $(APP_CFLAGS) -MMD -MP -MF"$@" $< -o $@
 
 # Build the elf !
 $(APP_BUILD_DIR)/$(TARGET).elf: $(APP_OBJECTS) $(CUBEMX_UNALTERED_OBJECTS) $(THIRDPARTY_OBJECTS)  Makefile
