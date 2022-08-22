@@ -1,6 +1,6 @@
 #include <assert.h>
 
-#define DATA_OUT_PIN 11
+#define DATA_OUT_PIN 10
 #define HEARTBEAT_PIN LED_BUILTIN
 #define DEBUG_INPUT_PIN 8
 
