@@ -37,7 +37,6 @@ extern "C" {
 #include "stm32f1xx_ll_utils.h"
 #include "stm32f1xx_ll_pwr.h"
 #include "stm32f1xx_ll_dma.h"
-#include "stm32f1xx_ll_tim.h"
 #include "stm32f1xx_ll_gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -76,6 +75,8 @@ void Error_Handler(void);
 #define DBG_RX_GPIO_Port GPIOA
 #define DATA_Pin LL_GPIO_PIN_0
 #define DATA_GPIO_Port GPIOB
+#define DBG_IO_Pin LL_GPIO_PIN_13
+#define DBG_IO_GPIO_Port GPIOB
 #define LED1_IO_Pin LL_GPIO_PIN_14
 #define LED1_IO_GPIO_Port GPIOB
 #define LED2_IO_Pin LL_GPIO_PIN_15

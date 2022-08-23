@@ -9,7 +9,6 @@
 static uint16_t heartbeat_period_ms;
 static uint32_t previous_heartbeat_time;
 static uint8_t  prev_input_level;
-static uint32_t last_transition;
 
 void send_bit(uint8_t bit) {
     assert(bit == 0 || bit == 1);
