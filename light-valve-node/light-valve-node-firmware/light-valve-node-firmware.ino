@@ -255,6 +255,14 @@ void setup() {
     // Globally enable interupts
     sei();
     pwm_timer_start();
+
+    // Little startup flash indicator so we know when properly powered / testing
+    static uint8_t opacity = 0;
+    for (int i = 0; i < 17; i++) {
+        opacity = (i % 2 == 0) ? 0 : 15;
+        light_valve_set_opacity(opacity);
+        delay(100);
+    }
 }
 
 void loop() {
@@ -485,24 +493,15 @@ void loop() {
     }
 
     // Heartbeat for debug
-    unsigned long  now     = millis();
-    static uint8_t opacity = 0;
+    unsigned long now = millis();
     if ((now - previous_time > heartbeat_period_ms)) {
-        light_valve_set_opacity(opacity);
-        opacity++;
-        if (opacity > 15) {
-            opacity = 0;
-        }
-        LOG("Opacity idx: ");
-        LOGLN(opacity);
-
         // Serial.print(timeouts);
         // delay(50);
         // Serial.print('-');
         // delay(50);
         // Serial.println(num_packets_rx);
-        timeouts       = 0;
-        num_packets_rx = 0;
+        // timeouts       = 0;
+        // num_packets_rx = 0;
 
         // Serial.println(elapsed_idx);
         // elapsed_idx = 0;
