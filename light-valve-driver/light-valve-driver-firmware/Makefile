@@ -38,6 +38,9 @@ BUILD_DIR := $(APP_BUILD_DIR)
 
 APP_INCLUDES = -Iinc
 
+# Add app include dir to cubemx compilation too so our files can be included in things like their main.c or ISR file
+# CUBEMX_C_INCLUDES += $(APP_INCLUDES)
+
 APP_C_SOURCES = \
 src/app_main.c \
 src/gpio.c \
@@ -46,7 +49,7 @@ src/cli_task.c \
 src/uart.c \
 src/cli_commands.c \
 src/input_data_task.c \
-src/output_data_task.c
+src/output_data_task.c 
 
 
 # TODO this needs to be extended to cycle through all thirdparty dirs
@@ -81,12 +84,12 @@ $(APP_BUILD_DIR)/FreeRTOS_CLI.o: $(FREERTOS_CLI_DIR)/FreeRTOS_CLI.c Makefile | $
 $(CUBEMX_DIR)/$(CUBEMX_BUILD_DIR):
 	$(MAKE) -C $(CUBEMX_DIR) $(CUBEMX_BUILD_DIR)
 
-# Override SPECIFICALLY the main.o target to compile cubemx's main.c This is so we can force it to compile with one extra -I include
-# flag of ../../inc. This is necessary so it can include our app_main.h so it can correctly call the app_main() function. All other
+# Override SPECIFIC cubemx targets to compile the c files. This is so we can force it to compile with one extra -I include
+# flag of ../../inc. This is necessary to include our app headers in cubemx files (calling app_main, logic from IRQ file, etc). All other
 # cubemx *.o targets handled in override below which just passes call through to matching cubemx makefile target.
-$(CUBEMX_BUILD_DIR)/main.o: $(CUBEMX_DIR)/Src/main.c $(CUBEMX_DIR)/Makefile | $(CUBEMX_DIR)/$(CUBEMX_BUILD_DIR)
+$(CUBEMX_BUILD_DIR)/main.o $(CUBEMX_BUILD_DIR)/stm32f1xx_it.o: $(CUBEMX_DIR)/Src/main.c $(CUBEMX_DIR)/Makefile | $(CUBEMX_DIR)/$(CUBEMX_BUILD_DIR)
 	@cd $(CUBEMX_DIR); \
-	$(CC) -c $(CFLAGS) -I../../inc -Wa,-a,-ad,-alms=$(CUBEMX_BUILD_DIR)/$(notdir $(<:.c=.lst)) Src/main.c -o $@
+		$(CC) -c $(CFLAGS) -I../../inc -Wa,-a,-ad,-alms=$(CUBEMX_BUILD_DIR)/$(notdir $(<:.c=.lst)) Src/$(@F:.o=.c) -o $@
 
 # Override the 'build/*.o' target for all the cubemx files that aren't main.o to simply call the cubemx makefile target for them.
 # I would have thought this would correctly know to use the targets that match in the cubemx file, but even without the BUILD_DIR
