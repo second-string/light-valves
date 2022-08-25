@@ -16,6 +16,7 @@
 #include "output_data_task.h"
 #include "uart.h"
 
+// Individual task data handles
 static uart_handle_t             cli_uart_handle;
 static uart_handle_t             xcvr_uart_handle;
 static input_data_task_handle_t  input_data_task_handle;
@@ -96,8 +97,8 @@ void app_init(void) {
 }
 
 void app_start(void) {
-    input_data_task_start(&input_data_task_handle);
-    output_data_task_start(&output_data_task_handle);
+    input_data_task_start();
+    output_data_task_start();
     cli_task_start();
     heartbeat_task_start();
 }
