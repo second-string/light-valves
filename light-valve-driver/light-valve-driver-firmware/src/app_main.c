@@ -80,7 +80,7 @@ void app_init(void) {
     output_data_task_init(&data_pin, &output_data_task_handle);
 
     uart_init(&huart1, 0, 0, 0, 0, NULL, &xcvr_uart_handle);
-    input_data_task_init(&xcvr_uart_handle, &input_data_task_handle);
+    input_data_task_init(&xcvr_uart_handle, 0x01, &input_data_task_handle);
 
     // NULL passed for process_char callback, see cli_task_init for reasoning
     uart_init(&huart2,

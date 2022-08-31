@@ -79,19 +79,26 @@ static void output_data_task(void *args) {
     TIM1->DIER |= TIM_DIER_UIE;
     TIM1->CR1 |= TIM_CR1_CEN;
 
-    data_output_packet_t packet_to_send = {0};
-    BaseType_t           rval           = pdFALSE;
+    uint8_t   *node_data = 0x0;
+    uint8_t    address   = 0x0;
+    uint8_t    data      = 0x0;
+    BaseType_t rval      = pdFALSE;
     while (1) {
-        rval = xQueueReceive(handle->data_out_queue, &packet_to_send, portMAX_DELAY);
+        rval = xQueueReceive(handle->data_out_queue, &node_data, portMAX_DELAY);
         configASSERT(rval);
 
         // TODO : enable timer and disable after sending to help w/ context switching?
-        send_packet(packet_to_send.address, packet_to_send.data);
+        for (uint8_t i = 0; i < 16; i++) {
+            address = (node_data[i] & 0xFF00) >> 4;
+            data    = node_data[i] & 0xFF;
+            send_packet(address, data);
+        }
     }
 }
 
-bool output_data_task_send_packet(data_output_packet_t *packet) {
-    return xQueueSendToBack(handle->data_out_queue, packet, portMAX_DELAY);
+// Assumes length of node_data matches 16 bytes queue created with for item size
+bool output_data_task_send_packet(uint8_t *node_data) {
+    return xQueueSendToBack(handle->data_out_queue, node_data, portMAX_DELAY);
 }
 
 /*
@@ -114,7 +121,7 @@ void output_data_task_init(gpio_pin_t *pin, output_data_task_handle_t *output_da
 
     handle                 = output_data_task_handle;
     handle->output_pin     = pin;
-    handle->data_out_queue = xQueueCreate(3, sizeof(data_output_packet_t));
+    handle->data_out_queue = xQueueCreate(5, 16 * sizeof(uint8_t));
 
     current_delay_ticks = 0;
     waiting             = false;
@@ -122,6 +129,7 @@ void output_data_task_init(gpio_pin_t *pin, output_data_task_handle_t *output_da
 
 void output_data_task_start() {
     configASSERT(handle);
-    BaseType_t rval = xTaskCreate(output_data_task, "output data task", configMINIMAL_STACK_SIZE * 4, NULL, 6, NULL);
-    configASSERT(rval == pdTRUE);
+    (void)output_data_task;
+    // BaseType_t rval = xTaskCreate(output_data_task, "output data task", configMINIMAL_STACK_SIZE * 4, NULL, 6, NULL);
+    // configASSERT(rval == pdTRUE);
 }
