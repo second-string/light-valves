@@ -47,7 +47,7 @@ static inline void send_bit(uint8_t bit) {
     }
 }
 
-static void send_packet(uint8_t addr_nibble, uint8_t data_nibble) {
+static void send_node_packet(uint8_t addr_nibble, uint8_t data_nibble) {
     // Initial transition
     gpio_toggle_pin(handle->output_pin);
 
@@ -95,7 +95,13 @@ static void output_data_task(void *args) {
         for (uint8_t i = 0; i < 16; i++) {
             address = (node_data_ptr[i] & 0xF0) >> 4;
             data    = node_data_ptr[i] & 0x0F;
-            send_packet(address, data);
+            send_node_packet(address, data);
+
+            // We really only need ~1ms between node packets for its timeout to trigger so it knows it's time to parse a
+            // new packet. vTaskDelaying with arg of 1 results in actual delay of ~300us, so bump the arg to 2ms to get
+            // ~1.4ms delay. Can be tuned in conjunection w/ node timeout timer if we want less time between node
+            // packets.
+            vTaskDelay(pdMS_TO_TICKS(2));
         }
     }
 }
