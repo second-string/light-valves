@@ -26,8 +26,7 @@ class NodePacket:
 pattern_choices = ["all_on", "all_off", "incrementing", "one_by_one", "full_fade", "moving_fade"]
 
 
-def send_driver_packet(ser, driver_addr, node_packet_list):
-
+def build_driver_packet(driver_addr, node_packet_list, debug_output=False):
     # Build the actual 8-bit values that will go to each node, i.e. 4 high bits addr 4 low bits data
     node_data_bytes = []
     for i in range(0, 16):
@@ -36,10 +35,15 @@ def send_driver_packet(ser, driver_addr, node_packet_list):
     # Convert to ctypes array to match type in class fields
     node_data_bytes_carray = (uint8_t * len(node_data_bytes))(*node_data_bytes)
 
-    print(f"Sending packet to driver address {driver_addr}.")
-    print([f"{packet.addr}, {packet.data}" for packet in node_packet_list])
-    packet = DriverPacket(0x6, driver_addr, node_data_bytes_carray)
-    packet_bytes = bytearray(packet)
+    if debug_output:
+        print(f"Sending packet to driver address {driver_addr}.")
+        print([f"{packet.addr}, {packet.data}" for packet in node_packet_list])
+    return DriverPacket(0x6, driver_addr, node_data_bytes_carray)
+
+def send_driver_packet(ser, driver_addr, node_packet_list):
+    driver_packet = build_driver_packet(driver_addr, node_packet_list, True)
+    packet_bytes = bytearray(driver_packet)
+    print(packet_bytes)
     ser.write(packet_bytes)
 
 
@@ -72,7 +76,7 @@ def manual(ser, driver_addr, node_addr, node_data):
 def pattern(ser, driver_addr, pattern):
     print(f"Displaying pattern '{pattern}'. If pattern repeats indefinitely, CTL+C to stop")
 
-    pattern_change_interval_s = 1
+    pattern_change_interval_s = 0.5
     node_packets = [NodePacket(i, 0x0) for i in range(0, 16)]
 
     if pattern == "all_on":
@@ -166,7 +170,7 @@ if __name__ == '__main__':
     elif args.mode == "pattern":
         pattern(ser, args.driver_addr, args.pattern_choice)
     else:
-        raise Exception("Shouldn't be able to get here with argparse choices")
+        raise Exception("Must provide 'mode' arg of either 'manual' or 'pattern'")
 
     # Closing immediately will cut off the bytes still waiting to transmit
     sleep(0.2)
