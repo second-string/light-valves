@@ -39,12 +39,8 @@ typedef enum {
 } decode_state_t;
 
 // TODO :: non-linear opacity mapping here. Lowest values show no change (0 to 10, 10 to 20), then seems solid for a
-// bit, then highest values indistinguishable w/o light behind valve
+// bit, then highest values indistinguishable w/o light behind valve. Timer is 12 bits total.
 static const uint16_t pwm_counts_by_data_index[16] = {
-    0,
-    10,
-    20,
-    30,
     50,
     70,
     90,
@@ -54,9 +50,13 @@ static const uint16_t pwm_counts_by_data_index[16] = {
     210,
     240,
     270,
-    310,
+    300,
+    330,
     360,
+    390,
     410,
+    440,
+    460,
 };
 
 static volatile bool data_transition_flag;
@@ -77,7 +77,7 @@ static uint16_t edges = 0;
 
 static uint8_t rx_start_bits;
 static uint8_t rx_data_bits;
-static uint8_t device_addr    = 0x1;  // TODO :: eventually this is set dynamically
+static uint8_t device_addr    = 0x3;  // TODO :: eventually this is set dynamically
 static uint8_t num_packets_rx = 0;
 
 // TODO :: debugging delete
