@@ -80,11 +80,6 @@ static uint8_t rx_data_bits;
 static uint8_t device_addr    = 0x3;  // TODO :: eventually this is set dynamically
 static uint8_t num_packets_rx = 0;
 
-// TODO :: debugging delete
-uint8_t  elapsed[4];
-uint16_t elapsed_idx = 0;
-uint8_t  timeouts    = 0;
-
 void data_pin_isr(void) {
     data_transition_flag = true;
 }
@@ -258,10 +253,19 @@ void setup() {
 
     // Little startup flash indicator so we know when properly powered / testing
     static uint8_t opacity = 0;
-    for (int i = 0; i < 17; i++) {
+    for (int i = 0; i < 5; i++) {
         opacity = (i % 2 == 0) ? 0 : 15;
         light_valve_set_opacity(opacity);
         delay(100);
+    }
+
+    light_valve_set_opacity(0);
+    delay(500);
+    for (uint8_t i = 0; i < device_addr; i++) {
+        light_valve_set_opacity(15);
+        delay(500);
+        light_valve_set_opacity(0);
+        delay(500);
     }
 }
 
@@ -309,9 +313,7 @@ void loop() {
         timeout = false;
 
         timeout_timer_stop();
-        elapsed_idx   = edges;
         current_state = DECODE_STATE_IDLE;
-        timeouts++;
     }
 
     if (data_transition_flag) {
@@ -493,20 +495,8 @@ void loop() {
     }
 
     // Heartbeat for debug
-    unsigned long now = millis();
-    if ((now - previous_time > heartbeat_period_ms)) {
-        // Serial.print(timeouts);
-        // delay(50);
-        // Serial.print('-');
-        // delay(50);
-        // Serial.println(num_packets_rx);
-        // timeouts       = 0;
-        // num_packets_rx = 0;
-
-        // Serial.println(elapsed_idx);
-        // elapsed_idx = 0;
-        // edges       = 0;
-
-        previous_time = now;
-    }
+    // unsigned long now = millis();
+    // if ((now - previous_time > heartbeat_period_ms)) {
+    //     previous_time = now;
+    // }
 }
