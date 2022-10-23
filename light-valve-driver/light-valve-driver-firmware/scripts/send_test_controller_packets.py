@@ -29,8 +29,12 @@ pattern_choices = ["all_on", "all_off", "incrementing", "one_by_one", "full_fade
 def build_driver_packet(driver_addr, node_packet_list, debug_output=False):
     # Build the actual 8-bit values that will go to each node, i.e. 4 high bits addr 4 low bits data
     node_data_bytes = []
+    packets_len = len(node_packet_list)
     for i in range(0, 16):
-        node_data_bytes.append((node_packet_list[i].addr << 4) | node_packet_list[i].data)
+        if i < packets_len:
+            node_data_bytes.append((node_packet_list[i].addr << 4) | node_packet_list[i].data)
+        else:
+            node_data_bytes.append(i << 4)
 
     # Convert to ctypes array to match type in class fields
     node_data_bytes_carray = (uint8_t * len(node_data_bytes))(*node_data_bytes)
