@@ -25,5 +25,5 @@ typedef struct {
 
 bool output_data_task_send_packet(uint8_t *node_data);
 void output_data_task_clock_tick();
-void output_data_task_init(gpio_pin_t *pin, output_data_task_handle_t *handle);
+void output_data_task_init(gpio_pin_t *pin, gpio_pin_t *tx_led_pin, output_data_task_handle_t *handle);
 void output_data_task_start();

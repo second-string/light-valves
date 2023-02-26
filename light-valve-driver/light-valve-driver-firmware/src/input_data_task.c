@@ -1,9 +1,10 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
-#include "gpio.h"
 #include "input_data_task.h"
 #include "output_data_task.h"
+
+static gpio_pin_t *rx_dbg_pin;
 
 // Assumes all 16 node_data slots are always filled for now, would be good to have a 4-bit field for num node_data slots
 // used for more efficient comms
@@ -53,6 +54,7 @@ static void input_data_task(void *args) {
         // node_data array for output task to process and send. Start bits should be 0b0110.
         if (input_packet.start_bits == 0x6 && input_packet.addr_bits == handle->device_address) {
             output_data_task_send_packet(input_packet.node_data);
+            gpio_toggle_pin(rx_dbg_pin);
         }
 
         // Clear IDLE flag if it was somehow pending and re-enable interrupt to catch incomplete packets
@@ -66,12 +68,16 @@ static void input_data_task(void *args) {
 
 void input_data_task_init(uart_handle_t            *uart_handle,
                           uint16_t                  device_address,
+                          gpio_pin_t               *rx_led_pin,
                           input_data_task_handle_t *input_data_task_handle) {
     configASSERT(uart_handle);
+    configASSERT(rx_led_pin);
 
     handle                 = input_data_task_handle;
     handle->uart_handle    = uart_handle;
     handle->device_address = device_address;
+
+    rx_dbg_pin = rx_led_pin;
 }
 
 void input_data_task_start(input_data_task_handle_t *handle) {

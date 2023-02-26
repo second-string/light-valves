@@ -21,6 +21,8 @@ static output_data_task_handle_t *handle;
 static volatile bool     waiting;
 static volatile uint32_t current_delay_ticks;
 
+static gpio_pin_t *tx_dbg_pin;
+
 /*
  * Sets the proper delay time and flag to be checked by the tick handler executed from the HW timer ISR. Spinlocks until
  * ISR-called function re-toggles data GPIO pin and sets flag to false (all RTOS constructs too slow). GPIO toggled from
@@ -97,6 +99,8 @@ static void output_data_task(void *args) {
             data    = node_data_ptr[i] & 0x0F;
             send_node_packet(address, data);
 
+            gpio_toggle_pin(tx_dbg_pin);
+
             // We really only need ~1ms between node packets for its timeout to trigger so it knows it's time to parse a
             // new packet. vTaskDelaying with arg of 1 results in actual delay of ~300us, so bump the arg to 2ms to get
             // ~1.4ms delay. Can be tuned in conjunection w/ node timeout timer if we want less time between node
@@ -126,8 +130,11 @@ void output_data_task_clock_tick() {
     }
 }
 
-void output_data_task_init(gpio_pin_t *pin, output_data_task_handle_t *output_data_task_handle) {
+void output_data_task_init(gpio_pin_t                *pin,
+                           gpio_pin_t                *tx_led_pin,
+                           output_data_task_handle_t *output_data_task_handle) {
     configASSERT(pin);
+    configASSERT(tx_led_pin);
 
     handle                 = output_data_task_handle;
     handle->output_pin     = pin;
@@ -135,6 +142,8 @@ void output_data_task_init(gpio_pin_t *pin, output_data_task_handle_t *output_da
 
     current_delay_ticks = 0;
     waiting             = false;
+
+    tx_dbg_pin = tx_led_pin;
 }
 
 void output_data_task_start() {

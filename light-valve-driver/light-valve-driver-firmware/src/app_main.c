@@ -77,11 +77,11 @@ gpio_pin_t xcvr_ro_pin = {
 };
 
 void app_init(void) {
-    output_data_task_init(&data_pin, &output_data_task_handle);
+    output_data_task_init(&data_pin, &led2_pin, &output_data_task_handle);
 
     // NULL passed for process_char callback, we will never get input on the uarts txing to nodes
     uart_init(&huart1, NULL, &xcvr_uart_handle);
-    input_data_task_init(&xcvr_uart_handle, 0x01, &input_data_task_handle);
+    input_data_task_init(&xcvr_uart_handle, 0x01, &led1_pin, &input_data_task_handle);
 
     // NULL passed for process_char callback, see cli_task_init for reasoning
     uart_init(&huart2, NULL, &cli_uart_handle);
