@@ -77,7 +77,7 @@ static uint16_t edges = 0;
 
 static uint8_t rx_start_bits;
 static uint8_t rx_data_bits;
-static uint8_t device_addr    = 0x3;  // TODO :: eventually this is set dynamically
+static uint8_t device_addr    = 0xF;  // TODO :: eventually this is set dynamically
 static uint8_t num_packets_rx = 0;
 
 void data_pin_isr(void) {
@@ -259,13 +259,14 @@ void setup() {
         delay(100);
     }
 
+    // Slow blink current programmed address
     light_valve_set_opacity(0);
     delay(500);
     for (uint8_t i = 0; i < device_addr; i++) {
         light_valve_set_opacity(15);
-        delay(500);
+        delay(300);
         light_valve_set_opacity(0);
-        delay(500);
+        delay(300);
     }
 }
 
