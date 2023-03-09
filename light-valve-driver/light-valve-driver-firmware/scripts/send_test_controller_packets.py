@@ -23,7 +23,7 @@ class NodePacket:
         self.data = data
 
 
-pattern_choices = ["all_on", "all_off", "incrementing", "one_by_one", "full_fade", "moving_fade"]
+pattern_choices = ["all_on", "all_off", "blink",  "blink_drivers", "incrementing", "one_by_one", "one_by_one_rev", "full_fade", "moving_fade"]
 
 
 def build_driver_packet(driver_addr, node_packet_list, debug_output=False):
@@ -49,9 +49,10 @@ def send_driver_packet(ser, driver_addr, node_packet_list):
     packet_bytes = bytearray(driver_packet)
     print(packet_bytes)
     ser.write(packet_bytes)
+    sleep(0.002)
 
 
-def manual(ser, driver_addr, node_addr, node_data):
+def manual(ser, num_drivers, node_addr, node_data):
     node_addr_str = ""
     if (node_addr):
         node_addr_str = str(node_addr)
@@ -74,38 +75,77 @@ def manual(ser, driver_addr, node_addr, node_data):
         node_packets.append(NodePacket(node_addr_list[i], node_data_list[i]))
 
     print(f"Driver packet has 16 node_data bytes with address nibble {node_addr_str} and data nibble {node_data_str}")
-    send_driver_packet(ser, driver_addr, node_packets)
+    for d in range(0, num_drivers):
+        send_driver_packet(ser, d, node_packets)
 
 
-def pattern(ser, driver_addr, pattern):
+def pattern(ser, num_drivers, pattern):
     print(f"Displaying pattern '{pattern}'. If pattern repeats indefinitely, CTL+C to stop")
 
-    pattern_change_interval_s = 0.5
-    node_packets = [NodePacket(i, 0x0) for i in range(0, 16)]
+    pattern_change_interval_s = 0.1
+    node_packets = [NodePacket(i, 0x0) for i in range(0, 0x10)]
 
     if pattern == "all_on":
         for node_packet in node_packets:
             node_packet.data = 0xF
-        send_driver_packet(ser, driver_addr, node_packets)
+        for d in range(0, num_drivers):
+            send_driver_packet(ser, d, node_packets)
     elif pattern == "all_off":
         for node_packet in node_packets:
             node_packet.data = 0x0
-        send_driver_packet(ser, driver_addr, node_packets)
+        for d in range(0, num_drivers):
+            send_driver_packet(ser, d, node_packets)
+    elif pattern == "blink":
+        on = True
+        while 1:
+            for node_packet in node_packets:
+                node_packet.data = 0xF if on else 0x0
+            for d in range(0, num_drivers):
+                send_driver_packet(ser, d, node_packets)
+
+            on = not on
+            sleep(pattern_change_interval_s * 5)
+    elif pattern == "blink_drivers":
+        on = True
+        while 1:
+            for d in range(0, num_drivers):
+                for node_packet in node_packets:
+                    node_packet.data = 0xF
+                send_driver_packet(ser, d, node_packets)
+                sleep(pattern_change_interval_s * 5)
+
+                for node_packet in node_packets:
+                    node_packet.data = 0x0
+                send_driver_packet(ser, d, node_packets)
     elif pattern == "incrementing":
         for i, node_packet in enumerate(node_packets):
             node_packet.data = i
-        send_driver_packet(ser, driver_addr, node_packets)
+        for d in range(0, num_drivers):
+            send_driver_packet(ser, d, node_packets)
     elif pattern == "one_by_one":
         node_on_index = 0
         while 1:
-            node_packets[node_on_index].data = 0xF
-            send_driver_packet(ser, driver_addr, node_packets)
-            sleep(pattern_change_interval_s)
-            node_packets[node_on_index].data = 0x0
-            if node_on_index == 0xF:
-                node_on_index = 0x0
-            else:
-                node_on_index += 1
+            for d in range(0, num_drivers):
+                for n in range(0, 0x10):
+                    node_packets[n].data = 0xF
+                    send_driver_packet(ser, d, node_packets)
+                    sleep(pattern_change_interval_s)
+                    node_packets[n].data = 0x0
+
+                # Turn off last node in that driver universe before starting on next driver
+                send_driver_packet(ser, d, node_packets)
+    elif pattern == "one_by_one_rev":
+        node_on_index = 0
+        while 1:
+            for d in range(num_drivers - 1, -1, -1):
+                for n in range(0, 0x10):
+                    node_packets[n].data = 0xF
+                    send_driver_packet(ser, d, node_packets)
+                    sleep(pattern_change_interval_s)
+                    node_packets[n].data = 0x0
+
+                # Turn off last node in that driver universe before starting on next driver
+                send_driver_packet(ser, d, node_packets)
     elif pattern == "full_fade":
         node_data = 0
         fade_dir = 1 # fading darker or lighter
@@ -117,7 +157,8 @@ def pattern(ser, driver_addr, pattern):
             for node_packet in node_packets:
                 node_packet.data += fade_dir
 
-            send_driver_packet(ser, driver_addr, node_packets)
+            for d in range(0, num_drivers):
+                send_driver_packet(ser, d, node_packets)
             sleep(pattern_change_interval_s)
     elif pattern == "moving_fade":
         current_node_index = 0
@@ -136,7 +177,8 @@ def pattern(ser, driver_addr, pattern):
                 moving_dir = 1
             current_node_index += moving_dir
 
-            send_driver_packet(ser, driver_addr, node_packets)
+            for d in range(0, num_drivers):
+                send_driver_packet(ser, d, node_packets)
             sleep(pattern_change_interval_s)
     else:
         raise Exception("Unsupported pattern!")
@@ -147,14 +189,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("port", help="Serial port to transmit data out")
     parser.add_argument("-b", "--baudrate", help="Baudrate to use when connecting to serial port", default=115200)
-    parser.add_argument("-a", "--driver_addr", help="Driver address to send packet(s) to", default=0x1, choices=range(1, 16), type=int)
+    parser.add_argument("-d", "--num_drivers", help="Number of driver addrs to send packet(s) to", default=0x1, choices=range(1, 5), type=int)
     subs = parser.add_subparsers(help="Choose what mode to execute the script in", dest="mode")
 
     # Subparser for all 'manual' mode args
     manual_parser = subs.add_parser("manual", help="Provide direct node addr/data for debugging")
     manual_parser.add_argument("-x", "--node_addr", help=
             "Node address nibble to use for all node_data within the packet. If not provided, all 16 nodes will be addresssed", choices=range(1, 16), type=int)
-    manual_parser.add_argument("-d", "--node_data", help=
+    manual_parser.add_argument("-y", "--node_data", help=
             "Node data nibble to use for all node_data within the packet. If not provided, node_data will match each node address its sent to", choices=range(1, 16), type=int)
 
     # Subparser for all 'pattern' mode args
@@ -170,9 +212,9 @@ if __name__ == '__main__':
         sys.exit(1)
 
     if args.mode == "manual":
-        manual(ser, args.driver_addr, args.node_addr, args.node_data)
+        manual(ser, args.num_drivers, args.node_addr, args.node_data)
     elif args.mode == "pattern":
-        pattern(ser, args.driver_addr, args.pattern_choice)
+        pattern(ser, args.num_drivers, args.pattern_choice)
     else:
         raise Exception("Must provide 'mode' arg of either 'manual' or 'pattern'")
 
