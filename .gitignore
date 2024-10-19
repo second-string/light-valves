@@ -1,8 +1,13 @@
 .DS_Store
+
+# binaries
 light-valve-driver/light-valve-driver-firmware/out/
 light-valve-driver/light-valve-driver-firmware/thirdparty/cubemx-light-valve-driver/
 light-valve-touchdesigner/Backup
 light-valve-touchdesigner/light-valves-grid.[0-9]?.toe
 
+# local only
 gcc*
 GCC*
+light-valve-content
+
