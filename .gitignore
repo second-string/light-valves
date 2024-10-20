@@ -10,4 +10,8 @@ light-valve-touchdesigner/light-valves-grid.[0-9]?.toe
 gcc*
 GCC*
 light-valve-content
-
+*.sh
+*.py
+radial.txt
+light-valve-touchdesigner/new_pattern_output.txt
+.venv/
